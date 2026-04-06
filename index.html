@@ -1,0 +1,1667 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ADP Payroll & WC</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+<script src="https://unpkg.com/jspdf-autotable@3.8.3/dist/jspdf.plugin.autotable.min.js"></script>
+<script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
+<style>
+:root {
+  --bg: #f5f7fa; --card: #fff; --primary: #2563eb; --primary-hover: #1d4ed8;
+  --danger: #dc2626; --danger-hover: #b91c1c; --text: #1e293b; --muted: #64748b;
+  --border: #e2e8f0; --success: #16a34a; --accent: #f1f5f9;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); }
+
+.layout { display: flex; min-height: 100vh; }
+.sidebar { width: 300px; background: var(--card); border-right: 1px solid var(--border); padding: 20px; flex-shrink: 0; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+.main { flex: 1; padding: 30px; min-width: 0; }
+
+h1 { font-size: 1.4rem; margin-bottom: 20px; color: var(--primary); }
+h2 { font-size: 1.1rem; margin-bottom: 12px; color: var(--text); }
+h3 { font-size: 1rem; margin: 20px 0 10px; color: var(--muted); }
+
+.btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 500; transition: background 0.2s; }
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover { background: var(--primary-hover); }
+.btn-danger { background: var(--danger); color: #fff; padding: 4px 10px; font-size: 0.75rem; }
+.btn-danger:hover { background: var(--danger-hover); }
+.btn-success { background: var(--success); color: #fff; }
+.btn-sm { padding: 5px 12px; font-size: 0.8rem; }
+
+input[type="text"], select, input[type="file"] {
+  width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px;
+  font-size: 0.85rem; margin-bottom: 8px; outline: none;
+}
+input:focus, select:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
+
+.card { background: var(--card); border-radius: 8px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+
+.client-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: 6px; margin-bottom: 4px; cursor: pointer; transition: background 0.15s; }
+.client-item:hover { background: var(--accent); }
+.client-item.active { background: #dbeafe; }
+.client-item .name { font-weight: 500; font-size: 0.9rem; }
+
+.add-form { margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+
+table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-bottom: 12px; }
+th { background: var(--primary); color: #fff; text-align: left; padding: 8px 12px; font-weight: 500; }
+td { padding: 7px 12px; border-bottom: 1px solid var(--border); }
+tr:hover { background: var(--accent); }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.group-header { background: #dbeafe; padding: 12px 16px; border-radius: 6px; margin: 20px 0 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+.group-header:hover { background: #bfdbfe; }
+.group-header h3 { margin: 0; color: var(--primary); }
+
+.detail-toggle { cursor: pointer; color: var(--primary); font-size: 0.8rem; text-decoration: underline; margin-top: 6px; display: inline-block; }
+.neg { color: var(--danger); }
+tr.deduction-row { background: #fef2f2; }
+tr.deduction-row:hover { background: #fee2e2; }
+
+.metrics { display: flex; gap: 16px; margin-top: 16px; flex-wrap: wrap; }
+.metric { background: var(--primary); color: #fff; padding: 16px 24px; border-radius: 8px; text-align: center; }
+.metric .value { font-size: 1.5rem; font-weight: 700; }
+.metric .label { font-size: 0.8rem; opacity: 0.85; margin-top: 4px; }
+
+.hidden { display: none; }
+
+.spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid #fff; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; margin-right: 6px; vertical-align: middle; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.alert { padding: 10px 14px; border-radius: 6px; font-size: 0.85rem; margin-bottom: 12px; }
+.alert-success { background: #dcfce7; color: #166534; }
+.alert-error { background: #fee2e2; color: #991b1b; }
+.alert-warning { background: #fef3c7; color: #92400e; border-left: 4px solid #f59e0b; }
+
+.btn-print { background: #475569; color: #fff; margin-left: 8px; }
+.btn-print:hover { background: #334155; }
+
+.product-table { width: 100%; }
+.product-table th { background: var(--accent); color: var(--text); font-size: 0.8rem; }
+.product-table td { font-size: 0.85rem; }
+.product-table .actions { white-space: nowrap; width: 80px; }
+
+.drop-zone { border: 2px dashed var(--border); border-radius: 8px; padding: 30px; text-align: center; color: var(--muted); cursor: pointer; transition: all 0.2s; margin-bottom: 8px; }
+.drop-zone:hover, .drop-zone.drag-over { border-color: var(--primary); background: #eff6ff; color: var(--primary); }
+.drop-zone input { display: none; }
+
+@media print {
+  body { background: #fff; font-size: 11px; }
+  .sidebar, #clientPanel > .card:first-child, #noClient, .btn-print, .detail-toggle { display: none !important; }
+  .layout { display: block; }
+  .main { margin-left: 0; padding: 0; }
+  #statusMsg .alert-success { background: none; border: 1px solid #ccc; color: #000; padding: 6px 10px; font-weight: 600; }
+  .card { box-shadow: none; border: 1px solid #ddd; page-break-inside: avoid; }
+  .group-header { background: #e2e8f0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  th { background: #334155 !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  tr.deduction-row { background: #fef2f2 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .neg { color: #dc2626 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .metric { -webkit-print-color-adjust: exact; print-color-adjust: exact; padding: 10px 16px; }
+  .metric .value { font-size: 1.1rem; }
+  .metrics { gap: 10px; }
+  .detail-toggle + div { display: none !important; }
+  #results { page-break-inside: avoid; }
+  .card { margin-bottom: 8px; padding: 10px; }
+  .group-header { padding: 6px 10px; }
+  table { font-size: 9px; }
+  th, td { padding: 3px 6px; }
+  .metrics { gap: 8px; margin-top: 8px; }
+  .metric { padding: 8px 12px; }
+  .metric .value { font-size: 0.9rem; }
+  .metric .label { font-size: 0.65rem; }
+  h2 { font-size: 0.9rem; margin-bottom: 6px; }
+  .group-header h3 { font-size: 0.8rem; }
+  @page { margin: 1cm; size: portrait; }
+}
+
+/* === WC Integration === */
+.tab-bar { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 2px solid var(--border); }
+.tab-btn { padding: 10px 24px; border: none; background: none; font-size: 0.9rem; font-weight: 600; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.2s; }
+.tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+.tab-btn:hover:not(.active) { color: var(--text); }
+
+.wc-steps { display: flex; gap: 0; margin-bottom: 16px; }
+.wc-step { flex: 1; text-align: center; padding: 10px 8px; font-size: 0.8rem; font-weight: 600; color: var(--muted); border-bottom: 3px solid var(--border); }
+.wc-step.active { color: var(--primary); border-bottom-color: var(--primary); }
+.wc-step.done { color: var(--success); border-bottom-color: var(--success); }
+.wc-step .snum { display: inline-block; width: 20px; height: 20px; line-height: 20px; border-radius: 50%; background: var(--border); color: var(--muted); font-size: 0.7rem; margin-right: 4px; }
+.wc-step.active .snum { background: var(--primary); color: #fff; }
+.wc-step.done .snum { background: var(--success); color: #fff; }
+
+.wc-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.wc-metric { background: var(--card); border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+.wc-metric h4 { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin-bottom: 6px; }
+.wc-metric .wval { font-size: 1.5rem; font-weight: 700; }
+.wc-metric .wsub { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+.wc-6643 .wval { color: var(--primary); }
+.wc-3719 .wval { color: var(--success); }
+.wc-total .wval { color: var(--danger); }
+
+.wc-assign { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: start; }
+.wc-col { border: 2px solid var(--border); border-radius: 8px; padding: 12px; min-height: 180px; }
+.wc-col.c6643 { border-color: #bfdbfe; }
+.wc-col.c6643 h4 { color: var(--primary); }
+.wc-col.c3719 { border-color: #a7f3d0; }
+.wc-col.c3719 h4 { color: var(--success); }
+.wc-col h4 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; display: flex; justify-content: space-between; }
+.wc-emp { padding: 5px 8px; margin-bottom: 3px; border-radius: 4px; font-size: 0.82rem; display: flex; justify-content: space-between; align-items: center; }
+.wc-emp:hover { background: var(--accent); }
+.wc-emp label { cursor: pointer; }
+.wc-emp input[type=checkbox] { margin-right: 5px; accent-color: var(--primary); }
+.wc-arrows { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 6px; padding-top: 50px; }
+.wc-search { width: 100%; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.82rem; margin-bottom: 8px; }
+.wc-selrow { display: flex; gap: 6px; margin-bottom: 8px; }
+.wc-selrow .btn { padding: 3px 8px; font-size: 0.7rem; background: var(--accent); color: var(--muted); border: 1px solid var(--border); }
+.wc-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 600; }
+.wc-badge-6643 { background: #dbeafe; color: #1d4ed8; }
+.wc-badge-3719 { background: #d1fae5; color: #047857; }
+.wc-cnt { background: var(--accent); padding: 2px 7px; border-radius: 10px; font-size: 0.7rem; font-weight: 400; }
+
+.wc-filter-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+.wc-ftab { padding: 6px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 0.82rem; font-weight: 600; background: var(--accent); color: var(--muted); }
+.wc-ftab.wf-all { background: var(--text); color: #fff; }
+.wc-ftab.wf-6643 { background: var(--primary); color: #fff; }
+.wc-ftab.wf-3719 { background: var(--success); color: #fff; }
+
+.wc-file-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.wc-chip { display: inline-flex; align-items: center; gap: 4px; background: var(--accent); padding: 4px 10px; border-radius: 5px; font-size: 0.78rem; }
+.wc-chip .xc { cursor: pointer; color: var(--danger); font-weight: 700; margin-left: 4px; }
+
+.wc-info { background: #fffbeb; border-left: 4px solid #f59e0b; padding: 10px 14px; border-radius: 0 6px 6px 0; margin-bottom: 14px; font-size: 0.82rem; line-height: 1.5; }
+.wc-info strong { color: #92400e; }
+
+@media (max-width: 768px) {
+  .wc-assign { grid-template-columns: 1fr; }
+  .wc-arrows { flex-direction: row; padding-top: 0; }
+  .wc-summary { grid-template-columns: 1fr; }
+}
+@media print {
+  .tab-bar { display: none !important; }
+}
+</style>
+
+<script>
+/*__EMBEDDED_CONFIG__*/
+const __embeddedBundle = null;
+/*__EMBEDDED_CONFIG__*/
+</script>
+</head>
+<body>
+<div id="loginGate" style="display:flex;align-items:center;justify-content:center;min-height:100vh;flex-direction:column;gap:16px">
+  <h1 style="color:#2563eb;font-size:2rem">ADP Payroll & WC</h1>
+  <p style="color:#64748b">Sign in with your Microsoft 365 account</p>
+  <button class="btn btn-primary" onclick="loginGraph()" style="padding:12px 32px;font-size:1rem">Sign in with Microsoft</button>
+  <p style="color:#94a3b8;font-size:0.75rem">Or open the file locally for offline mode</p>
+</div>
+<div class="layout" id="appContent" style="display:none">
+  <div class="sidebar">
+    <h1>ADP Payroll & WC</h1>
+    <div id="authBar" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;font-size:0.75rem">
+      <span id="authUserLabel" style="color:var(--muted)"></span>
+      <button class="btn btn-sm" id="authBtn" onclick="toggleAuth()" style="font-size:0.7rem;padding:3px 8px;background:var(--accent)">Sign out</button>
+    </div>
+
+    <!-- Company Selector -->
+    <div style="margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border)">
+      <label style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin-bottom:4px;display:block">Company</label>
+      <select id="companySelect" onchange="switchCompany(this.value)" style="font-weight:600"></select>
+      <div style="display:flex;gap:4px;margin-top:6px">
+        <input type="text" id="newCompanyName" placeholder="Add company..." style="flex:1;margin:0;padding:5px 8px;font-size:0.78rem">
+        <button class="btn btn-primary btn-sm" style="padding:4px 10px;font-size:0.75rem" onclick="addCompany()">+</button>
+      </div>
+    </div>
+
+    <!-- Main Navigation -->
+    <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:16px">
+      <button class="btn btn-sm" id="navWC" style="width:100%;background:#dc2626;color:white;font-weight:600;text-align:left;padding:10px 12px" onclick="showWCPanel()">Workers' Comp</button>
+    </div>
+
+    <div class="add-form">
+      <h3>Add Client</h3>
+      <input type="text" id="newClientName" placeholder="Client name">
+      <button class="btn btn-primary" onclick="addClient()">Add</button>
+    </div>
+    <h3>Clients</h3>
+    <div id="clientList"></div>
+    <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <button class="btn btn-sm" style="width:100%;background:#2563eb;color:white" onclick="exportConfig()">⬇ Export Config</button>
+      <label class="btn btn-sm" style="width:100%;background:#7c3aed;color:white;text-align:center;cursor:pointer;box-sizing:border-box">
+        ⬆ Import Config
+        <input type="file" accept=".json" onchange="importConfig(event)" style="display:none">
+      </label>
+      <label class="btn btn-sm" style="width:100%;background:#059669;color:white;text-align:center;cursor:pointer;box-sizing:border-box">
+        📤 Share App (with data)
+        <input type="file" accept=".html,.htm" onchange="shareApp(event)" style="display:none">
+      </label>
+    </div>
+  </div>
+
+  <div class="main">
+    <div id="noClient" class="card">
+      <p style="color:var(--muted)">Select or add a client to get started.</p>
+    </div>
+
+    <div id="clientPanel" class="hidden">
+      <h2 id="panelClientName" style="margin-bottom:12px"></h2>
+      <div class="card">
+        <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileUpload').click()">
+          <input type="file" id="fileUpload" accept=".xlsx,.xls" onchange="handleFile(this.files[0])">
+          <p><strong>Drop ADP file here</strong> or click to browse</p>
+          <p style="font-size:0.75rem;margin-top:4px">.xlsx files only</p>
+        </div>
+        <div id="fileName" style="font-size:0.85rem;color:var(--muted);margin-bottom:8px"></div>
+        <button class="btn btn-success" onclick="processPayroll()" id="processBtn">Process Payroll</button>
+        <button class="btn btn-print" onclick="window.print()" id="printBtn" disabled>Print / PDF</button>
+        <button class="btn btn-sm" style="background:#059669;color:#fff;margin-left:8px;margin-top:12px" onclick="exportInvoicePDF()" id="exportBtn" disabled>Export Invoice PDF</button>
+      </div>
+
+      <!-- Products -->
+      <div class="card" id="productsCard">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h2 style="margin-bottom:0">Products</h2>
+          <button class="btn btn-primary btn-sm" onclick="showAddProduct()">+ Add Product</button>
+        </div>
+        <div id="addProductForm" class="hidden" style="display:none;gap:8px;align-items:end;margin-bottom:12px;padding:10px;background:var(--accent);border-radius:6px">
+          <div style="flex:1">
+            <label style="font-size:0.8rem;color:var(--muted)">Product Name</label>
+            <input type="text" id="newProductName" placeholder="e.g. Staffing Services">
+          </div>
+          <div style="width:140px">
+            <label style="font-size:0.8rem;color:var(--muted)">ADP Rate ($/h)</label>
+            <input type="text" id="newProductAdpRate" placeholder="e.g. 28.55">
+          </div>
+          <div style="display:flex;gap:4px">
+            <button class="btn btn-success btn-sm" onclick="addProduct()">Save</button>
+            <button class="btn btn-sm" style="background:var(--border)" onclick="hideAddProduct()">Cancel</button>
+          </div>
+        </div>
+        <div id="productList"></div>
+        <p id="noProducts" style="color:var(--muted);font-size:0.85rem">No products configured. Add products to map Regular Rates for QBO export.</p>
+      </div>
+
+      <div id="statusMsg"></div>
+      <div id="results"></div>
+    </div><!-- /clientPanel -->
+
+    <!-- ========== WORKERS' COMP PANEL (company-level) ========== -->
+    <div id="wcPanel" class="hidden">
+        <h2 id="wcCompanyName" style="margin-bottom:12px;color:var(--danger)">Workers' Compensation</h2>
+
+        <div class="wc-steps">
+          <div class="wc-step active" id="wcStep1"><span class="snum">1</span>Upload ADP Files</div>
+          <div class="wc-step" id="wcStep2"><span class="snum">2</span>Assign Class Codes</div>
+          <div class="wc-step" id="wcStep3"><span class="snum">3</span>WC Payroll Report</div>
+        </div>
+
+        <!-- WC Step 1: Upload -->
+        <div id="wcUpload">
+          <div class="card">
+            <div class="drop-zone" id="wcDropZone" onclick="document.getElementById('wcFileInput').click()">
+              <input type="file" id="wcFileInput" multiple accept=".xlsx,.xls" style="display:none">
+              <p><strong>Drop ADP Payroll Detail files here</strong></p>
+              <p style="font-size:0.75rem;margin-top:4px">Select multiple .xlsx files for WC calculation</p>
+            </div>
+            <div class="wc-file-chips" id="wcFileChips"></div>
+            <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+              <button class="btn btn-primary" id="wcProcessBtn" disabled onclick="wcProcessFiles()">Process Files</button>
+              <button class="btn btn-danger" id="wcClearBtn" style="display:none" onclick="wcClearFiles()">Clear All</button>
+              <span id="wcLoading" style="display:none;color:var(--muted);font-size:0.85rem"><span class="spinner"></span>Parsing...</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- WC Step 2: Assign -->
+        <div id="wcAssign" class="hidden">
+          <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+              <div>
+                <h2 style="margin-bottom:2px">Assign Employees to Class Codes</h2>
+                <p style="font-size:0.78rem;color:var(--muted)">Default: up to &amp; including "Flores Rios, Jorge" &rarr; 6643; rest &rarr; 3719</p>
+              </div>
+              <div style="display:flex;gap:6px">
+                <button class="btn btn-primary" onclick="wcGenerateReport()">Generate WC Report &#9654;</button>
+                <button class="btn btn-sm" style="background:var(--accent);color:var(--muted)" onclick="wcGoStep(1)">&#9664; Back</button>
+              </div>
+            </div>
+            <div class="wc-assign">
+              <div class="wc-col c6643">
+                <h4>Class Code 6643 <span class="wc-cnt" id="wcCnt6643">0</span></h4>
+                <input type="text" class="wc-search" placeholder="Search..." oninput="wcFilterList('6643', this.value)">
+                <div class="wc-selrow">
+                  <button class="btn" onclick="wcSelAll('6643')">Select All</button>
+                  <button class="btn" onclick="wcDesel('6643')">Deselect</button>
+                </div>
+                <div id="wcList6643"></div>
+              </div>
+              <div class="wc-arrows">
+                <button class="btn btn-primary btn-sm" onclick="wcMove('6643','3719')">&#9654;</button>
+                <button class="btn btn-primary btn-sm" onclick="wcMove('3719','6643')">&#9664;</button>
+              </div>
+              <div class="wc-col c3719">
+                <h4>Class Code 3719 <span class="wc-cnt" id="wcCnt3719">0</span></h4>
+                <input type="text" class="wc-search" placeholder="Search..." oninput="wcFilterList('3719', this.value)">
+                <div class="wc-selrow">
+                  <button class="btn" onclick="wcSelAll('3719')">Select All</button>
+                  <button class="btn" onclick="wcDesel('3719')">Deselect</button>
+                </div>
+                <div id="wcList3719"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- WC Step 3: Report -->
+        <div id="wcReport" class="hidden">
+          <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+            <button class="btn btn-sm" style="background:var(--accent);color:var(--muted)" onclick="wcGoStep(2)">&#9664; Back to Class Codes</button>
+            <button class="btn btn-sm" style="background:var(--accent);color:var(--muted)" onclick="wcResetAll()">&#9664; New Calculation</button>
+            <button class="btn btn-success btn-sm" onclick="wcExportCSV()">Export CSV</button>
+          </div>
+
+          <div class="wc-info">
+            <strong>WC Payroll Rule (TX):</strong> Overtime premium is excluded from reportable payroll. Only the straight-time equivalent of OT hours is reportable.<br>
+            <strong>Formula:</strong> Reportable = Regular $ + (OT Hours &times; Regular Rate)
+          </div>
+
+          <div class="wc-summary" id="wcSummary"></div>
+
+          <div class="wc-filter-tabs" id="wcFilterTabs">
+            <button class="wc-ftab wf-all" onclick="wcFilterTable('all', this)">All Employees</button>
+            <button class="wc-ftab" onclick="wcFilterTable('6643', this)">Class 6643</button>
+            <button class="wc-ftab" onclick="wcFilterTable('3719', this)">Class 3719</button>
+          </div>
+
+          <div class="card" style="padding:0;overflow-x:auto">
+            <table id="wcTable">
+              <thead>
+                <tr>
+                  <th>Employee</th><th>Class</th><th class="num">Reg Hrs</th>
+                  <th class="num">Regular $</th><th class="num">OT Hrs</th><th class="num">OT $</th>
+                  <th class="num">Gross</th><th class="num">OT Prem Excl</th><th class="num">WC Reportable</th><th class="num">Periods</th>
+                </tr>
+              </thead>
+              <tbody id="wcTbody"></tbody>
+              <tfoot id="wcTfoot"></tfoot>
+            </table>
+          </div>
+        </div>
+
+    </div><!-- /wcPanel -->
+
+  </div>
+</div>
+
+<script>
+let currentClient = null;
+let clients = {};
+let currentFileData = null;
+let lastPayrollData = null;
+let currentCompany = null;
+let companies = [];
+
+const STORAGE_KEY = 'adp_payroll_clients';
+const COMPANY_KEY = 'adp_companies';
+const COMPANY_ACTIVE_KEY = 'adp_active_company';
+const EMBED_MARKER = '/*__EMBEDDED_CONFIG__*/';
+
+// =============================================
+// MICROSOFT GRAPH / SHAREPOINT MODULE
+// =============================================
+const GRAPH_CONFIG = {
+  clientId: '4712fdde-a0c9-4f4a-8956-ec62148dd028',
+  tenantId: '21092052-611b-424c-8437-054166f5b120',
+  sharePointHost: 'mfuprz.sharepoint.com',
+  sharePointSitePath: '/sites/SkylordUS-Fleetbooster',
+  scopes: ['https://graph.microsoft.com/Sites.ReadWrite.All', 'https://graph.microsoft.com/Sites.Manage.All']
+};
+let _msalApp = null, _msalInitialized = false, _graphAccount = null;
+async function _msalInit() {
+  if (_msalInitialized) return true;
+  if (!window.msal) return false;
+  try {
+    if (!_msalApp) {
+      _msalApp = new msal.PublicClientApplication({
+        auth: { clientId: GRAPH_CONFIG.clientId, authority: `https://login.microsoftonline.com/${GRAPH_CONFIG.tenantId}`, redirectUri: window.location.origin + '/' },
+        cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: true }
+      });
+    }
+    if (typeof _msalApp.initialize === 'function') await _msalApp.initialize();
+    _msalInitialized = true; return true;
+  } catch(e) { console.error('MSAL init:', e); return false; }
+}
+function toggleAuth() { if (_graphAccount) logoutGraph(); else loginGraph(); }
+async function loginGraph() {
+  if (window.location.protocol === 'file:') { alert('Sign-in requires HTTPS. Open from deployed URL.'); return; }
+  if (!(await _msalInit())) { alert('Auth not configured.'); return; }
+  try {
+    const _lr = sessionStorage.getItem('_msalRedirectTs');
+    if (_lr && (Date.now() - Number(_lr)) < 10000) return;
+    sessionStorage.setItem('_msalRedirectTs', String(Date.now()));
+    await _msalApp.loginRedirect({ scopes: GRAPH_CONFIG.scopes, prompt: 'select_account' });
+  } catch(e) { alert('Sign-in error: ' + (e?.message || e)); }
+}
+async function logoutGraph() {
+  if (!_msalApp || !_graphAccount) return;
+  const acct = _graphAccount; _graphAccount = null; _siteId = null;
+  Object.keys(SP_LISTS).forEach(k => SP_LISTS[k] = null);
+  try { _msalApp.clearCache({ account: acct }); } catch(e) {}
+  updateAuthUI();
+}
+async function graphToken() {
+  if (!_msalApp || !_graphAccount) return null;
+  try { return (await _msalApp.acquireTokenSilent({ scopes: GRAPH_CONFIG.scopes, account: _graphAccount })).accessToken; }
+  catch(e) { try { await _msalApp.acquireTokenRedirect({ scopes: GRAPH_CONFIG.scopes }); } catch(e2) {} return null; }
+}
+function updateAuthUI() {
+  const lg = document.getElementById('loginGate'), ac = document.getElementById('appContent');
+  const ab = document.getElementById('authBtn'), al = document.getElementById('authUserLabel');
+  if (_graphAccount) {
+    if (lg) lg.style.display = 'none'; if (ac) ac.style.display = 'flex';
+    if (ab) ab.textContent = 'Sign out';
+    if (al) { al.textContent = _graphAccount.name || _graphAccount.username || ''; al.style.display = 'inline'; }
+  } else if (window.location.protocol === 'file:') {
+    if (lg) lg.style.display = 'none'; if (ac) ac.style.display = 'flex';
+    if (ab) ab.textContent = 'Offline'; if (al) { al.textContent = 'Local mode'; al.style.display = 'inline'; }
+  } else {
+    if (lg) lg.style.display = 'flex'; if (ac) ac.style.display = 'none';
+  }
+}
+// ── SharePoint Lists ──
+const SP_LISTS = { PayrollClients: null, PayrollCompanies: null, PayrollWCAssignments: null, PayrollSettings: null };
+const SP_LIST_DEFS = {
+  PayrollClients: [ { name: 'AppId', text: {}, indexed: true }, { name: 'ClientName', text: {} }, { name: 'ProductsJson', text: { allowMultipleLines: true } } ],
+  PayrollCompanies: [ { name: 'AppId', text: {}, indexed: true }, { name: 'CompanyName', text: {} } ],
+  PayrollWCAssignments: [ { name: 'AppId', text: {}, indexed: true }, { name: 'CompanyName', text: {} }, { name: 'AssignmentsJson', text: { allowMultipleLines: true } } ],
+  PayrollSettings: [ { name: 'SettingKey', text: {}, indexed: true }, { name: 'JsonValue', text: { allowMultipleLines: true } } ]
+};
+let _siteId = null; const _spItemMap = {};
+async function spResolveSite() {
+  if (_siteId) return _siteId;
+  const token = await graphToken();
+  const resp = await fetch(`https://graph.microsoft.com/v1.0/sites/${GRAPH_CONFIG.sharePointHost}:${GRAPH_CONFIG.sharePointSitePath}`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!resp.ok) throw new Error(`Site resolve: ${resp.status}`);
+  _siteId = (await resp.json()).id; return _siteId;
+}
+async function spEnsureLists() {
+  const token = await graphToken(), siteId = await spResolveSite();
+  const existing = {};
+  let listUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists?$select=id,displayName&$top=200`;
+  while (listUrl) { const r = await fetch(listUrl, { headers: { Authorization: `Bearer ${token}` } }); const d = await r.json(); (d.value||[]).forEach(l => { existing[l.displayName] = l.id; }); listUrl = d['@odata.nextLink']||null; }
+  for (const [name, columns] of Object.entries(SP_LIST_DEFS)) {
+    if (existing[name]) { SP_LISTS[name] = existing[name];
+      try { const cr = await fetch(`https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${existing[name]}/columns?$select=id,name&$top=200`, { headers: { Authorization: `Bearer ${token}` } });
+        if (cr.ok) { const ec = {}; (await cr.json()).value.forEach(c => { ec[c.name]=true; }); for (const cd of columns) { if (!ec[cd.name]) await fetch(`https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${existing[name]}/columns`, { method:'POST', headers:{ Authorization:`Bearer ${token}`,'Content-Type':'application/json'}, body:JSON.stringify(cd) }); } }
+      } catch(e) {}
+    } else {
+      const cr = await fetch(`https://graph.microsoft.com/v1.0/sites/${siteId}/lists`, { method:'POST', headers:{ Authorization:`Bearer ${token}`,'Content-Type':'application/json'}, body:JSON.stringify({ displayName:name, list:{template:'genericList'}, columns }) });
+      if (cr.ok) SP_LISTS[name] = (await cr.json()).id;
+      else if (cr.status===409) { let ru=`https://graph.microsoft.com/v1.0/sites/${siteId}/lists?$select=id,displayName&$top=200`; while(ru){const rr=await fetch(ru,{headers:{Authorization:`Bearer ${token}`}});const rd=await rr.json();(rd.value||[]).forEach(l=>{if(l.displayName===name)SP_LISTS[name]=l.id;});ru=rd['@odata.nextLink']||null;} }
+      else throw new Error(`Create list ${name}: ${cr.status}`);
+    }
+  }
+}
+async function spFetchAll(listName) {
+  const token = await graphToken(), siteId = await spResolveSite(), listId = SP_LISTS[listName]; if (!listId) return [];
+  let items = [], url = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items?$expand=fields&$top=5000`;
+  while (url) { const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } }); if (!r.ok) return items; const d = await r.json(); items = items.concat((d.value||[]).map(i=>({_spId:i.id,...i.fields}))); url=d['@odata.nextLink']||null; }
+  if (!_spItemMap[listName]) _spItemMap[listName] = {};
+  items.forEach(i => { if(i.AppId) _spItemMap[listName][i.AppId]=i._spId; if(i.SettingKey) _spItemMap[listName][i.SettingKey]=i._spId; });
+  return items;
+}
+async function spCreateItem(listName, fields) {
+  const token = await graphToken(), siteId = await spResolveSite(), listId = SP_LISTS[listName]; if (!listId) throw new Error(`List ${listName} not found`);
+  const r = await fetch(`https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items`, { method:'POST', headers:{ Authorization:`Bearer ${token}`,'Content-Type':'application/json'}, body:JSON.stringify({fields}) });
+  if (!r.ok) throw new Error(`spCreate ${listName}: ${r.status}`);
+  const c = await r.json(); if(!_spItemMap[listName])_spItemMap[listName]={}; if(fields.AppId)_spItemMap[listName][fields.AppId]=c.id; if(fields.SettingKey)_spItemMap[listName][fields.SettingKey]=c.id; return c;
+}
+async function spUpdateItem(listName, appIdOrKey, fields) {
+  const token = await graphToken(), siteId = await spResolveSite(), listId = SP_LISTS[listName], spId = _spItemMap[listName]?.[appIdOrKey];
+  if (!listId||!spId) throw new Error(`spUpdate: ${listName}/${appIdOrKey} not found`);
+  const r = await fetch(`https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items/${spId}/fields`, { method:'PATCH', headers:{ Authorization:`Bearer ${token}`,'Content-Type':'application/json'}, body:JSON.stringify(fields) });
+  if (!r.ok) throw new Error(`spUpdate ${listName}/${appIdOrKey}: ${r.status}`);
+}
+async function spDeleteItem(listName, appId) {
+  const token = await graphToken(), siteId = await spResolveSite(), listId = SP_LISTS[listName], spId = _spItemMap[listName]?.[appId];
+  if (!listId||!spId) return;
+  await fetch(`https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items/${spId}`, { method:'DELETE', headers:{ Authorization:`Bearer ${token}` } });
+  delete _spItemMap[listName][appId];
+}
+
+function getEmbeddedBundle() {
+  if (typeof __embeddedBundle !== 'undefined' && __embeddedBundle && typeof __embeddedBundle === 'object') {
+    return __embeddedBundle;
+  }
+  if (typeof __embeddedConfig !== 'undefined' && __embeddedConfig) {
+    return { clients: __embeddedConfig };
+  }
+  return null;
+}
+
+function bootstrapFromEmbedded() {
+  const bundle = getEmbeddedBundle();
+  if (!bundle) return;
+
+  if (bundle.clients && !localStorage.getItem(STORAGE_KEY)) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(bundle.clients));
+  }
+  if (Array.isArray(bundle.companies) && !localStorage.getItem(COMPANY_KEY)) {
+    localStorage.setItem(COMPANY_KEY, JSON.stringify(bundle.companies));
+  }
+  if (bundle.activeCompany && !localStorage.getItem(COMPANY_ACTIVE_KEY)) {
+    localStorage.setItem(COMPANY_ACTIVE_KEY, bundle.activeCompany);
+  }
+  if (bundle.wcClassAssignments && typeof bundle.wcClassAssignments === 'object') {
+    Object.entries(bundle.wcClassAssignments).forEach(([company, mapping]) => {
+      const wcKey = 'wc_class_' + company;
+      if (!localStorage.getItem(wcKey)) {
+        localStorage.setItem(wcKey, JSON.stringify(mapping));
+      }
+    });
+  }
+}
+
+async function collectFullConfig() {
+  const wcClassAssignments = {};
+  if (_graphAccount) {
+    const wcItems = await spFetchAll('PayrollWCAssignments');
+    wcItems.forEach(item => { try { wcClassAssignments[item.CompanyName] = JSON.parse(item.AssignmentsJson || '{}'); } catch(e) {} });
+  } else {
+    try { Object.keys(localStorage).forEach(k => { if (k.startsWith('wc_class_')) { const company = k.slice('wc_class_'.length); try { wcClassAssignments[company] = JSON.parse(localStorage.getItem(k) || '{}'); } catch(e) {} } }); } catch(e) {}
+  }
+  return { clients, companies, activeCompany: currentCompany, wcClassAssignments };
+}
+
+async function loadClients() {
+  if (_graphAccount) {
+    const items = await spFetchAll('PayrollClients');
+    clients = {};
+    items.forEach(item => { let p=[]; try{p=JSON.parse(item.ProductsJson||'[]');}catch(e){} clients[item.ClientName]={products:p}; });
+  } else {
+    try { clients = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch(e) { clients = {}; }
+  }
+  Object.values(clients).forEach(c => {
+    (c.products || []).forEach(p => {
+      if (p.rate !== undefined && p.adpRate === undefined) { p.adpRate = p.rate; p.clientRate = p.rate; delete p.rate; }
+      p.adpRate = Number(p.adpRate) || 0; p.clientRate = Number(p.clientRate) || 0;
+    });
+  });
+  renderClientList();
+}
+
+async function saveClients() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(clients));
+  if (!_graphAccount) return;
+  const spItems = await spFetchAll('PayrollClients'); const spByName = {};
+  spItems.forEach(item => { spByName[item.ClientName] = item; });
+  for (const [name, data] of Object.entries(clients)) {
+    const fields = { Title: name, ClientName: name, AppId: name, ProductsJson: JSON.stringify(data.products || []) };
+    if (spByName[name]) await spUpdateItem('PayrollClients', name, fields);
+    else await spCreateItem('PayrollClients', fields);
+  }
+  for (const sn of Object.keys(spByName)) { if (!clients[sn]) await spDeleteItem('PayrollClients', sn); }
+}
+
+// --- Companies ---
+async function loadCompanies() {
+  if (_graphAccount) {
+    const items = await spFetchAll('PayrollCompanies');
+    companies = items.map(i => i.CompanyName).filter(Boolean);
+    const settings = await spFetchAll('PayrollSettings');
+    const as = settings.find(s => s.SettingKey === 'activeCompany');
+    currentCompany = as ? as.JsonValue : companies[0];
+  } else {
+    try { companies = JSON.parse(localStorage.getItem(COMPANY_KEY)) || []; } catch(e) { companies = []; }
+    currentCompany = localStorage.getItem(COMPANY_ACTIVE_KEY) || companies[0];
+  }
+  if (!companies.length) { companies = ['Onfire Logistics LLC']; await saveCompanies(); }
+  if (!companies.includes(currentCompany)) currentCompany = companies[0];
+  renderCompanySelect();
+}
+async function saveCompanies() {
+  localStorage.setItem(COMPANY_KEY, JSON.stringify(companies));
+  if (!_graphAccount) return;
+  const spItems = await spFetchAll('PayrollCompanies'); const spByName = {};
+  spItems.forEach(item => { spByName[item.CompanyName] = item; });
+  for (const name of companies) { const f={Title:name,AppId:name,CompanyName:name}; if(spByName[name]) await spUpdateItem('PayrollCompanies',name,f); else await spCreateItem('PayrollCompanies',f); }
+  for (const sn of Object.keys(spByName)) { if (!companies.includes(sn)) await spDeleteItem('PayrollCompanies', sn); }
+}
+function renderCompanySelect() {
+  const sel = document.getElementById('companySelect');
+  sel.innerHTML = companies.map(c => `<option value="${c}" ${c === currentCompany ? 'selected' : ''}>${c}</option>`).join('');
+}
+async function switchCompany(name) {
+  currentCompany = name;
+  localStorage.setItem(COMPANY_ACTIVE_KEY, name);
+  if (!_graphAccount) return;
+  try { await spUpdateItem('PayrollSettings', 'activeCompany', { JsonValue: name }); }
+  catch(e) { await spCreateItem('PayrollSettings', { Title: 'activeCompany', SettingKey: 'activeCompany', JsonValue: name }); }
+}
+async function addCompany() {
+  const name = document.getElementById('newCompanyName').value.trim();
+  if (!name || companies.includes(name)) return;
+  companies.push(name);
+  await saveCompanies();
+  currentCompany = name;
+  await switchCompany(name);
+  renderCompanySelect();
+  document.getElementById('newCompanyName').value = '';
+}
+
+// --- Panel Navigation ---
+function showWCPanel() {
+  currentClient = null;
+  renderClientList();
+  document.getElementById('noClient').classList.add('hidden');
+  document.getElementById('clientPanel').classList.add('hidden');
+  document.getElementById('wcPanel').classList.remove('hidden');
+  document.getElementById('wcCompanyName').textContent = currentCompany + ' — Workers\' Compensation';
+  document.getElementById('navWC').style.background = '#991b1b';
+}
+
+function renderClientList() {
+  const el = document.getElementById('clientList');
+  if (!Object.keys(clients).length) {
+    el.innerHTML = '<p style="color:var(--muted);font-size:0.85rem">No clients</p>';
+    return;
+  }
+  el.innerHTML = Object.entries(clients).map(([name]) => `
+    <div class="client-item ${currentClient === name ? 'active' : ''}" onclick="selectClient('${name.replace(/'/g, "\\'")}')">
+      <div class="name">${name}</div>
+      <div style="display:flex;gap:2px">
+        <button class="btn btn-sm" style="background:var(--accent);font-size:0.65rem;padding:2px 6px" onclick="event.stopPropagation();editClientName('${name.replace(/'/g, "\\'")}')">edit</button>
+        <button class="btn btn-danger" onclick="event.stopPropagation();deleteClient('${name.replace(/'/g, "\\'")}')">x</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function addClient() {
+  const name = document.getElementById('newClientName').value.trim();
+  if (!name) return;
+  clients[name] = { products: [] };
+  await saveClients();
+  document.getElementById('newClientName').value = '';
+  selectClient(name);
+}
+
+async function editClientName(name) {
+  const newName = prompt('Edit client name:', name);
+  if (!newName || newName.trim() === '' || newName.trim() === name) return;
+  const trimmed = newName.trim();
+  if (clients[trimmed]) { alert('A client with that name already exists.'); return; }
+  clients[trimmed] = clients[name];
+  delete clients[name];
+  await saveClients();
+  if (currentClient === name) {
+    currentClient = trimmed;
+    document.getElementById('panelClientName').textContent = trimmed;
+  }
+  renderClientList();
+}
+
+async function deleteClient(name) {
+  if (!confirm(`Delete client "${name}"?`)) return;
+  delete clients[name];
+  await saveClients();
+  if (currentClient === name) {
+    currentClient = null;
+    document.getElementById('clientPanel').classList.add('hidden');
+    document.getElementById('noClient').classList.remove('hidden');
+    document.getElementById('results').innerHTML = '';
+  }
+  renderClientList();
+}
+
+function selectClient(name) {
+  currentClient = name;
+  currentFileData = null;
+  document.getElementById('noClient').classList.add('hidden');
+  document.getElementById('clientPanel').classList.remove('hidden');
+  document.getElementById('wcPanel').classList.add('hidden');
+  document.getElementById('navWC').style.background = '#dc2626';
+  document.getElementById('panelClientName').textContent = name;
+  document.getElementById('results').innerHTML = '';
+  document.getElementById('statusMsg').innerHTML = '';
+  document.getElementById('fileName').textContent = '';
+  document.getElementById('fileUpload').value = '';
+  document.getElementById('exportBtn').disabled = true;
+  document.getElementById('printBtn').disabled = true;
+  lastPayrollData = null;
+  if (!clients[name].products) clients[name].products = [];
+  renderClientList();
+  renderProducts();
+  hideAddProduct();
+}
+
+// --- Products ---
+
+function renderProducts() {
+  const products = clients[currentClient]?.products || [];
+  const el = document.getElementById('productList');
+  const noP = document.getElementById('noProducts');
+  if (!products.length) {
+    el.innerHTML = '';
+    noP.style.display = '';
+    return;
+  }
+  noP.style.display = 'none';
+  el.innerHTML = `<table class="product-table">
+    <tr><th>Product Name</th><th class="num">ADP Rate ($/h)</th><th class="actions"></th></tr>
+    ${products.map((p, i) => `
+      <tr id="prodRow${i}">
+        <td>${p.name}</td>
+        <td class="num">$${Number(p.adpRate).toFixed(2)}</td>
+        <td class="actions" style="white-space:nowrap">
+          <button class="btn btn-sm" style="background:var(--accent);font-size:0.7rem;padding:3px 8px" onclick="editProduct(${i})">edit</button>
+          <button class="btn btn-danger" onclick="deleteProduct(${i})">x</button>
+        </td>
+      </tr>
+    `).join('')}
+  </table>`;
+}
+
+function showAddProduct() {
+  const f = document.getElementById('addProductForm');
+  f.classList.remove('hidden');
+  f.style.display = 'flex';
+  document.getElementById('newProductName').focus();
+}
+
+function hideAddProduct() {
+  const f = document.getElementById('addProductForm');
+  f.classList.add('hidden');
+  f.style.display = 'none';
+  document.getElementById('newProductName').value = '';
+  document.getElementById('newProductAdpRate').value = '';
+}
+
+async function addProduct() {
+  const name = document.getElementById('newProductName').value.trim();
+  const adpRate = parseFloat(document.getElementById('newProductAdpRate').value);
+  if (!name || isNaN(adpRate)) return;
+  if (!clients[currentClient].products) clients[currentClient].products = [];
+  clients[currentClient].products.push({ name, adpRate });
+  await saveClients();
+  renderProducts();
+  hideAddProduct();
+}
+
+function editProduct(idx) {
+  const p = clients[currentClient].products[idx];
+  const row = document.getElementById('prodRow' + idx);
+  row.innerHTML = `
+    <td><input type="text" id="editName${idx}" value="${p.name}" style="margin:0"></td>
+    <td><input type="text" id="editAdp${idx}" value="${p.adpRate}" style="margin:0;text-align:right;width:100px"></td>
+    <td class="actions" style="white-space:nowrap">
+      <button class="btn btn-success btn-sm" style="font-size:0.7rem;padding:3px 8px" onclick="saveEditProduct(${idx})">save</button>
+      <button class="btn btn-sm" style="background:var(--border);font-size:0.7rem;padding:3px 8px" onclick="renderProducts()">cancel</button>
+    </td>`;
+  document.getElementById('editName' + idx).focus();
+}
+
+async function saveEditProduct(idx) {
+  const name = document.getElementById('editName' + idx).value.trim();
+  const adpRate = parseFloat(document.getElementById('editAdp' + idx).value);
+  if (!name || isNaN(adpRate)) return;
+  clients[currentClient].products[idx] = { name, adpRate };
+  await saveClients();
+  renderProducts();
+}
+
+async function deleteProduct(idx) {
+  clients[currentClient].products.splice(idx, 1);
+  await saveClients();
+  renderProducts();
+}
+
+// Drag & drop
+const dropZone = document.getElementById('dropZone');
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file && (file.name.endsWith('.xlsx') || file.name.endsWith('.xls'))) handleFile(file);
+});
+
+function handleFile(file) {
+  if (!file) return;
+  document.getElementById('fileName').textContent = file.name;
+  const reader = new FileReader();
+  reader.onload = e => { currentFileData = { name: file.name, data: new Uint8Array(e.target.result) }; };
+  reader.readAsArrayBuffer(file);
+}
+
+// --- Payroll parsing ---
+
+function parsePayroll(data) {
+  const wb = XLSX.read(data, { type: 'array' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const range = XLSX.utils.decode_range(ws['!ref']);
+
+  // Read cell helper
+  const cell = (r, c) => {
+    const addr = XLSX.utils.encode_cell({ r, c });
+    return ws[addr] ? ws[addr].v : null;
+  };
+
+  // Company name from row 0
+  const companyLine = cell(0, 0) || '';
+  const company = companyLine.includes('Company:') ? companyLine.replace('Company:', '').trim() : companyLine;
+  const checkDates = cell(2, 0) || '';
+
+  // Find header row
+  let headerRow = -1;
+  for (let r = 0; r <= Math.min(range.e.r, 20); r++) {
+    if (cell(r, 0) && String(cell(r, 0)).trim() === 'Employee Name') { headerRow = r; break; }
+  }
+  if (headerRow < 0) return { error: 'Header row (Employee Name) not found' };
+
+  // Read headers
+  const headers = [];
+  for (let c = 0; c <= range.e.c; c++) headers.push(cell(headerRow, c) ? String(cell(headerRow, c)).trim() : '');
+
+  // Find earning groups
+  const earningGroups = [];
+  for (let i = 0; i < headers.length; i++) {
+    if (headers[i].startsWith('Earning')) {
+      earningGroups.push({ nameCol: i, hoursCol: i+1, rateCol: i+2, amountCol: i+3 });
+    }
+  }
+
+  // Find deduction columns
+  const deductionCols = [];
+  const taxesIdx = headers.indexOf('Total Taxes');
+  const dedTotalIdx = headers.indexOf('Deduction Total');
+  const netPayIdx = headers.indexOf('Net Pay');
+  if (taxesIdx >= 0) {
+    const endIdx = dedTotalIdx >= 0 ? dedTotalIdx : netPayIdx;
+    if (endIdx >= 0) {
+      for (let i = taxesIdx + 1; i < endIdx; i++) {
+        if (headers[i] && headers[i] !== 'Deduction Total') deductionCols.push({ name: headers[i], col: i });
+      }
+    }
+  }
+
+  // Find Payment 1 column
+  let p1Col = -1, p1AmtCol = -1;
+  for (let i = 0; i < headers.length; i++) {
+    if (headers[i].startsWith('Payment') && headers[i].includes('1') && !headers[i].includes('Check Date') && !headers[i].includes('Transaction') && !headers[i].includes('Amount')) p1Col = i;
+    if (headers[i].includes('Payment') && headers[i].includes('1') && headers[i].includes('Amount')) p1AmtCol = i;
+  }
+
+  const colIdx = name => { const i = headers.indexOf(name); return i >= 0 ? i : -1; };
+  const tiCol = colIdx('Total Hours'), eiCol = colIdx('Total Earnings'), niCol = colIdx('Net Pay');
+  const txiCol = colIdx('Total Taxes'), eliCol = colIdx('Total Employer Liability'), dtiCol = colIdx('Deduction Total');
+
+  // Read employees
+  const employees = [];
+  for (let r = headerRow + 1; r <= range.e.r; r++) {
+    const cellA = cell(r, 0);
+    if (cellA && String(cellA).includes('Company Total')) break;
+    if (!cellA || !String(cellA).trim()) continue;
+
+    const emp = { name: String(cellA).trim(), earnings: [], deductions: [] };
+    for (const eg of earningGroups) {
+      emp.earnings.push({
+        concept: cell(r, eg.nameCol) ? String(cell(r, eg.nameCol)).trim() : '',
+        hours: Number(cell(r, eg.hoursCol)) || 0,
+        rate: Number(cell(r, eg.rateCol)) || 0,
+        amount: Number(cell(r, eg.amountCol)) || 0,
+      });
+    }
+    for (const dc of deductionCols) {
+      emp.deductions.push({ concept: dc.name, amount: Number(cell(r, dc.col)) || 0 });
+    }
+    emp.total_hours = tiCol >= 0 ? Number(cell(r, tiCol)) || 0 : 0;
+    emp.total_earnings = eiCol >= 0 ? Number(cell(r, eiCol)) || 0 : 0;
+    emp.net_pay = niCol >= 0 ? Number(cell(r, niCol)) || 0 : 0;
+    emp.total_taxes = txiCol >= 0 ? Number(cell(r, txiCol)) || 0 : 0;
+    emp.total_employer_liability = eliCol >= 0 ? Number(cell(r, eliCol)) || 0 : 0;
+    emp.deduction_total = dtiCol >= 0 ? Number(cell(r, dtiCol)) || 0 : 0;
+    emp.payment_method = p1Col >= 0 ? String(cell(r, p1Col) || '').trim() : '';
+    emp.payment_amount = p1AmtCol >= 0 ? Number(cell(r, p1AmtCol)) || 0 : 0;
+    employees.push(emp);
+  }
+
+  // Non-Direct Deposit
+  const nonDDMap = {};
+  employees.forEach(emp => {
+    if (emp.payment_method && emp.payment_method !== 'Direct Deposit') {
+      if (!nonDDMap[emp.payment_method]) nonDDMap[emp.payment_method] = { method: emp.payment_method, employees: [], total_amount: 0 };
+      nonDDMap[emp.payment_method].employees.push(emp.name);
+      nonDDMap[emp.payment_method].total_amount += emp.payment_amount;
+    }
+  });
+  const nonDD = Object.values(nonDDMap).map(g => ({ ...g, total_amount: Math.round(g.total_amount * 100) / 100, count: g.employees.length }));
+
+  // Build analysis
+  const allConcepts = [], allDeductions = [];
+  employees.forEach(emp => {
+    emp.earnings.forEach(e => { if (e.concept && !allConcepts.includes(e.concept)) allConcepts.push(e.concept); });
+    emp.deductions.forEach(d => { if (d.concept && !allDeductions.includes(d.concept)) allDeductions.push(d.concept); });
+  });
+
+  // Group by Regular rate
+  const groupsMap = {};
+  employees.forEach(emp => {
+    let regRate = 0, regAmt = 0;
+    emp.earnings.forEach(e => { if (e.concept.includes('Regular')) { regRate = e.rate; regAmt = e.amount; } });
+    if (!groupsMap[regRate]) groupsMap[regRate] = { regular_rate: regRate, regular_amount: regAmt, employees: [], summary: [] };
+    groupsMap[regRate].employees.push(emp);
+  });
+
+  const rd = n => Math.round(n * 100) / 100;
+
+  Object.values(groupsMap).forEach(g => {
+    g.num_employees = g.employees.length;
+    allConcepts.forEach(concept => {
+      let totalHrs = 0, totalAmt = 0, count = 0;
+      g.employees.forEach(emp => emp.earnings.forEach(e => { if (e.concept === concept) { totalHrs += e.hours; totalAmt += e.amount; if (e.hours > 0) count++; } }));
+      if (totalAmt > 0) g.summary.push({ concept, type: 'earning', total_hours: rd(totalHrs), total_amount: rd(totalAmt), rate_per_hour: totalHrs > 0 ? rd(totalAmt / totalHrs) : 0, count });
+    });
+    allDeductions.forEach(dc => {
+      let totalDed = 0, count = 0;
+      g.employees.forEach(emp => emp.deductions.forEach(d => { if (d.concept === dc) { totalDed += d.amount; if (d.amount) count++; } }));
+      if (totalDed !== 0) g.summary.push({ concept: dc, type: 'deduction', total_hours: 0, total_amount: rd(-Math.abs(totalDed)), rate_per_hour: 0, count });
+    });
+  });
+
+  const groups = Object.keys(groupsMap).sort((a, b) => a - b).map(k => groupsMap[k]);
+
+  // Grand totals
+  const grandTotals = [];
+  allConcepts.forEach(concept => {
+    let totalHrs = 0, totalAmt = 0, count = 0;
+    employees.forEach(emp => emp.earnings.forEach(e => { if (e.concept === concept) { totalHrs += e.hours; totalAmt += e.amount; if (e.hours > 0) count++; } }));
+    if (totalAmt > 0) grandTotals.push({ concept, type: 'earning', total_hours: rd(totalHrs), total_amount: rd(totalAmt), rate_per_hour: totalHrs > 0 ? rd(totalAmt / totalHrs) : 0, count });
+  });
+  allDeductions.forEach(dc => {
+    let totalDed = 0, count = 0;
+    employees.forEach(emp => emp.deductions.forEach(d => { if (d.concept === dc) { totalDed += d.amount; if (d.amount) count++; } }));
+    if (totalDed !== 0) grandTotals.push({ concept: dc, type: 'deduction', total_hours: 0, total_amount: rd(-Math.abs(totalDed)), rate_per_hour: 0, count });
+  });
+
+  const totalEarnings = rd(employees.reduce((s, e) => s + e.total_earnings, 0));
+  const totalNet = rd(employees.reduce((s, e) => s + e.net_pay, 0));
+  const totalTaxes = rd(employees.reduce((s, e) => s + e.total_taxes, 0));
+  const totalEmpLiab = rd(employees.reduce((s, e) => s + e.total_employer_liability, 0));
+
+  return {
+    company, check_dates: checkDates, employees, num_employees: employees.length,
+    non_direct_deposit: nonDD,
+    analysis: {
+      groups, grand_totals: grandTotals,
+      total_net_pay: totalNet,
+      total_taxes: totalTaxes,
+      total_employer_liability: totalEmpLiab,
+      total_taxes_combined: rd(totalTaxes + totalEmpLiab)
+    }
+  };
+}
+
+// --- UI ---
+
+function processPayroll() {
+  if (!currentFileData) { showStatus('Please select a file', 'error'); return; }
+  const btn = document.getElementById('processBtn');
+  btn.innerHTML = '<span class="spinner"></span>Processing...';
+  btn.disabled = true;
+
+  setTimeout(() => {
+    try {
+      const data = parsePayroll(currentFileData.data);
+      if (data.error) { showStatus(data.error, 'error'); }
+      else {
+        lastPayrollData = data;
+        showStatus(`${data.company} — ${data.check_dates} — ${data.num_employees} employees`, 'success');
+        renderResults(data);
+        document.getElementById('exportBtn').disabled = false;
+        document.getElementById('printBtn').disabled = false;
+        if (data.non_direct_deposit && data.non_direct_deposit.length) renderNonDDAlert(data.non_direct_deposit);
+      }
+    } catch(e) {
+      showStatus('Error processing file: ' + e.message, 'error');
+    }
+    btn.innerHTML = 'Process Payroll';
+    btn.disabled = false;
+  }, 50);
+}
+
+function showStatus(msg, type) {
+  document.getElementById('statusMsg').innerHTML = `<div class="alert alert-${type}"><strong>${currentClient}</strong> — ${msg}</div>`;
+}
+
+function fmt(n) { return n.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+function fmtAmt(n) { return n < 0 ? `<span class="neg">($${fmt(Math.abs(n))})</span>` : `$${fmt(n)}`; }
+
+function renderResults(data) {
+  const a = data.analysis;
+  let html = '';
+
+  a.groups.forEach((g, gi) => {
+    html += `
+    <div class="card">
+      <div class="group-header" onclick="toggleSection('group${gi}')">
+        <h3>Regular Rate: $${fmt(g.regular_rate)}/h — ${g.num_employees} employees</h3>
+        <span style="font-size:0.8rem">&#9660;</span>
+      </div>
+      <div id="group${gi}">
+        <table>
+          <tr><th>Concept</th><th class="num">Employees</th><th class="num">Total Hours</th><th class="num">Total Amount</th><th class="num">$/h</th></tr>
+          ${g.summary.map(s => `
+            <tr class="${s.type === 'deduction' ? 'deduction-row' : ''}">
+              <td>${s.type === 'deduction' ? '(-) ' : ''}${s.concept}</td>
+              <td class="num">${s.count}</td>
+              <td class="num">${s.total_hours ? fmt(s.total_hours) : '-'}</td>
+              <td class="num">${fmtAmt(s.total_amount)}</td>
+              <td class="num">${s.rate_per_hour ? '$' + fmt(s.rate_per_hour) : '-'}</td>
+            </tr>
+          `).join('')}
+        </table>
+        <span class="detail-toggle" onclick="toggleSection('detail${gi}')">Show employee detail</span>
+        <div id="detail${gi}" class="hidden">
+          <table>
+            <tr>
+              <th>Employee</th>
+              ${g.summary.filter(s => s.type === 'earning').map(s => `<th class="num">${s.concept} Hrs</th><th class="num">${s.concept} $</th>`).join('')}
+              ${g.summary.filter(s => s.type === 'deduction').map(s => `<th class="num">${s.concept}</th>`).join('')}
+              <th class="num">Total Hrs</th><th class="num">Total Earnings</th><th class="num">Deductions</th><th class="num">Net Pay</th>
+            </tr>
+            ${g.employees.map(emp => `
+              <tr>
+                <td>${emp.name}</td>
+                ${emp.earnings.filter(e => e.concept).map(e => `
+                  <td class="num">${fmt(e.hours)}</td>
+                  <td class="num">$${fmt(e.amount)}</td>
+                `).join('')}
+                ${(emp.deductions || []).map(d => `
+                  <td class="num">${d.amount ? fmtAmt(-Math.abs(d.amount)) : '-'}</td>
+                `).join('')}
+                <td class="num">${fmt(emp.total_hours)}</td>
+                <td class="num">$${fmt(emp.total_earnings)}</td>
+                <td class="num">${emp.deduction_total ? fmtAmt(-Math.abs(emp.deduction_total)) : '-'}</td>
+                <td class="num">$${fmt(emp.net_pay)}</td>
+              </tr>
+            `).join('')}
+          </table>
+        </div>
+      </div>
+    </div>`;
+  });
+
+  html += `
+  <div class="card">
+    <h2>Grand Totals</h2>
+    <table>
+      <tr><th>Concept</th><th class="num">Employees</th><th class="num">Total Hours</th><th class="num">Total Amount</th><th class="num">$/h</th></tr>
+      ${a.grand_totals.map(g => `
+        <tr class="${g.type === 'deduction' ? 'deduction-row' : ''}">
+          <td>${g.type === 'deduction' ? '(-) ' : ''}${g.concept}</td>
+          <td class="num">${g.count || '-'}</td>
+          <td class="num">${g.total_hours ? fmt(g.total_hours) : '-'}</td>
+          <td class="num">${fmtAmt(g.total_amount)}</td>
+          <td class="num">${g.rate_per_hour ? '$' + fmt(g.rate_per_hour) : '-'}</td>
+        </tr>
+      `).join('')}
+    </table>
+    <div class="metrics">
+      <div class="metric"><div class="value">$${fmt(a.total_net_pay)}</div><div class="label">Total Net Pay</div></div>
+      <div class="metric" style="background:#dc2626"><div class="value">$${fmt(a.total_taxes_combined)}</div><div class="label">Total Taxes</div></div>
+      <div class="metric" style="background:#7c3aed"><div class="value">$${fmt(a.total_net_pay + a.total_taxes_combined)}</div><div class="label">Total Bank Debit</div></div>
+      <div class="metric"><div class="value">${data.num_employees}</div><div class="label">Employees</div></div>
+      <div class="metric" style="background:#059669"><div class="value">$${fmt((a.grand_totals.find(g => g.concept === 'Regular' && g.type === 'earning')?.total_hours || 0) * 4)}</div><div class="label">Terralabor</div></div>
+      ${(data.non_direct_deposit || []).map(g => `
+        <div class="metric" style="background:#f59e0b"><div class="value">$${fmt(g.total_amount)}</div><div class="label">${g.method} (${g.count})</div></div>
+      `).join('')}
+    </div>
+  </div>`;
+
+  document.getElementById('results').innerHTML = html;
+}
+
+function renderNonDDAlert(nonDD) {
+  let html = `<div class="alert alert-warning">
+    <strong>ALERT: Non-Direct Deposit payments detected</strong>
+    <table style="margin-top:8px; background:#fff; border-radius:4px;">
+      <tr><th>Payment Method</th><th class="num">Employees</th><th class="num">Total Amount</th><th>Employee Names</th></tr>`;
+  nonDD.forEach(g => {
+    html += `<tr>
+      <td><strong>${g.method}</strong></td>
+      <td class="num">${g.count}</td>
+      <td class="num">$${fmt(g.total_amount)}</td>
+      <td style="font-size:0.8rem">${g.employees.join(', ')}</td>
+    </tr>`;
+  });
+  html += `</table></div>`;
+  document.getElementById('statusMsg').innerHTML += html;
+}
+
+function toggleSection(id) {
+  document.getElementById(id).classList.toggle('hidden');
+}
+
+function exportInvoicePDF() {
+  if (!lastPayrollData || !currentClient) return;
+  const { jsPDF } = window.jspdf;
+  const products = clients[currentClient]?.products || [];
+  const groups = lastPayrollData.analysis.groups;
+  const a = lastPayrollData.analysis;
+
+  // Check products configured
+  const warnings = [];
+  groups.forEach(g => {
+    const product = products.find(p => Number(p.adpRate) === g.regular_rate);
+    if (!product) {
+      const hrs = g.summary.find(s => s.concept.includes('Regular') && s.type === 'earning')?.total_hours || 0;
+      warnings.push(`No product for ADP Rate $${g.regular_rate.toFixed(2)}/h (${g.num_employees} emp, ${hrs} hrs)`);
+    }
+  });
+  if (warnings.length) {
+    alert('Warning:\n' + warnings.join('\n') + '\n\nConfigure missing products and try again.');
+    return;
+  }
+
+  const dateMatch = lastPayrollData.check_dates.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  let invoiceDate;
+  if (dateMatch) {
+    const d = new Date(parseInt(dateMatch[3]), parseInt(dateMatch[1]) - 1, parseInt(dateMatch[2]));
+    d.setDate(d.getDate() - 3);
+    invoiceDate = `${d.getMonth()+1}/${d.getDate()}/${d.getFullYear()}`;
+  } else {
+    invoiceDate = new Date().toLocaleDateString('en-US');
+  }
+
+  const doc = new jsPDF({ format: [120, 200] });
+  const pw = doc.internal.pageSize.getWidth();
+
+  // Header
+  doc.setFontSize(14);
+  doc.setTextColor(37, 99, 235);
+  doc.text('INVOICE', 8, 14);
+
+  doc.setFontSize(8);
+  doc.setTextColor(100, 116, 139);
+  doc.text(`Date: ${invoiceDate}`, pw - 8, 14, { align: 'right' });
+
+  // Bill To
+  doc.setFontSize(7);
+  doc.setTextColor(100, 116, 139);
+  doc.text('BILL TO', 8, 24);
+  doc.setFontSize(10);
+  doc.setTextColor(30, 41, 59);
+  doc.text(currentClient, 8, 30);
+
+  doc.setFontSize(7);
+  doc.setTextColor(100, 116, 139);
+  doc.text('PAYROLL PERIOD', pw - 8, 24, { align: 'right' });
+  doc.setFontSize(8);
+  doc.setTextColor(30, 41, 59);
+  doc.text(lastPayrollData.check_dates.replace('Check Dates From: ', ''), pw - 8, 30, { align: 'right' });
+
+  // Line items table
+  const tableRows = [];
+
+  const dateMatch2 = lastPayrollData.check_dates.match(/(\d{1,2})\/(\d{1,2})/);
+  const mmdd = dateMatch2 ? `${dateMatch2[1]}/${dateMatch2[2]}` : '';
+
+  groups.forEach(g => {
+    const product = products.find(p => Number(p.adpRate) === g.regular_rate);
+    g.summary.filter(s => s.type === 'earning').forEach(s => {
+      tableRows.push([
+        product.name,
+        `${s.concept} - ${g.num_employees} emp`,
+        s.total_hours.toLocaleString('en-US', {minimumFractionDigits:2}),
+        ''
+      ]);
+    });
+  });
+
+  // Deductions - find deduction product from client products (adpRate = 0)
+  const dedProduct = products.find(p => Number(p.adpRate) === 0);
+  const dedProductName = dedProduct ? dedProduct.name : 'Payroll deduction';
+  const deductions = a.grand_totals.filter(g => g.type === 'deduction');
+  deductions.forEach(d => {
+    tableRows.push([
+      dedProductName,
+      `${d.concept} - Check ${mmdd}`,
+      '',
+      '($' + Math.abs(d.total_amount).toLocaleString('en-US', {minimumFractionDigits:2}) + ')'
+    ]);
+  });
+
+  doc.autoTable({
+    startY: 46,
+    head: [['Product', 'Description', 'Qty (Hrs)', 'Amount']],
+    body: tableRows,
+    theme: 'striped',
+    headStyles: { fillColor: [37, 99, 235], fontSize: 7 },
+    bodyStyles: { fontSize: 7 },
+    columnStyles: {
+      0: { cellWidth: 28 },
+      1: { cellWidth: 'auto' },
+      2: { halign: 'right', cellWidth: 18 },
+      3: { halign: 'right', cellWidth: 20 }
+    },
+    didParseCell: function(data) {
+      if (data.section === 'body' && data.row.raw[0] === dedProductName) {
+        data.cell.styles.textColor = [220, 38, 38];
+        data.cell.styles.fillColor = [254, 242, 242];
+      }
+    }
+  });
+
+  // Footer
+  doc.setFontSize(6);
+  doc.setTextColor(160, 174, 192);
+  doc.text(`${lastPayrollData.num_employees} employees | Generated ${new Date().toLocaleString('en-US')}`, 8, doc.internal.pageSize.getHeight() - 6);
+
+  const datePart = invoiceDate.replace(/\//g, '');
+  doc.save(`Invoice_${currentClient.replace(/\s+/g, '_')}_${datePart}.pdf`);
+}
+
+async function exportConfig() {
+  const data = JSON.stringify(await collectFullConfig(), null, 2);
+  const blob = new Blob([data], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'adp_payroll_config.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function importConfig(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const imported = JSON.parse(e.target.result);
+      if (!imported || typeof imported !== 'object' || Array.isArray(imported)) throw new Error('Invalid format');
+
+      const isFullBundle = imported.clients || imported.companies || imported.activeCompany || imported.wcClassAssignments;
+      const importedClients = isFullBundle ? (imported.clients || {}) : imported;
+      const importedCompanies = isFullBundle ? imported.companies : null;
+      const importedActiveCompany = isFullBundle ? imported.activeCompany : null;
+      const importedWC = isFullBundle ? (imported.wcClassAssignments || {}) : null;
+
+      if (typeof importedClients !== 'object' || Array.isArray(importedClients)) throw new Error('Invalid clients format');
+
+      const clientCount = Object.keys(importedClients).length;
+      const companyCount = Array.isArray(importedCompanies) ? importedCompanies.length : 0;
+
+      if (confirm(`Import ${clientCount} client(s)${isFullBundle ? ` and ${companyCount} compan${companyCount === 1 ? 'y' : 'ies'}` : ''}? This will merge with your existing data. Existing items with the same name will be overwritten.`)) {
+        Object.assign(clients, importedClients);
+        saveClients();
+
+        if (Array.isArray(importedCompanies) && importedCompanies.length) {
+          companies = [...new Set([...(companies || []), ...importedCompanies.filter(Boolean)])];
+          saveCompanies();
+        }
+
+        if (importedActiveCompany && companies.includes(importedActiveCompany)) {
+          currentCompany = importedActiveCompany;
+          localStorage.setItem(COMPANY_ACTIVE_KEY, currentCompany);
+        }
+
+        if (importedWC && typeof importedWC === 'object') {
+          Object.entries(importedWC).forEach(([company, mapping]) => {
+            localStorage.setItem('wc_class_' + company, JSON.stringify(mapping || {}));
+          });
+        }
+
+        renderCompanySelect();
+        renderClientList();
+        if (currentClient && clients[currentClient]) renderProducts();
+        alert(`Import completed: ${clientCount} client(s) loaded${isFullBundle ? `, ${companyCount} compan${companyCount === 1 ? 'y' : 'ies'}` : ''}.`);
+      }
+    } catch(err) {
+      alert('Invalid config file: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+function shareApp(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async function(e) {
+    let src = e.target.result;
+    const data = JSON.stringify(await collectFullConfig());
+    const marker = EMBED_MARKER;
+    const esc = marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const payload = marker + '\nconst __embeddedBundle = ' + data + ';\n' + marker;
+    if (src.includes(marker)) {
+      src = src.replace(new RegExp(esc + '[\\s\\S]*?' + esc), payload);
+    } else {
+      src = src.replace('bootstrapFromEmbedded();', payload + '\nbootstrapFromEmbedded();');
+      if (!src.includes(payload)) {
+        src = payload + '\n' + src;
+      }
+    }
+    const blob = new Blob([src], { type: 'text/html' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'ADP_Payroll_App.html';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+// =============================================
+// WORKERS' COMP MODULE
+// =============================================
+
+let wcFiles = [];          // {file, name}
+let wcRecords = [];        // parsed employee rows
+let wcAggregated = {};     // name -> aggregated
+let wcClassAssign = {};    // name -> '6643'|'3719'
+let wcPerFile = {};        // source -> [names in order]
+let wcPeriods = [];
+let wcEmployees = [];      // final computed
+
+// --- WC File Upload ---
+const wcDZ = document.getElementById('wcDropZone');
+const wcFI = document.getElementById('wcFileInput');
+wcDZ.addEventListener('dragover', e => { e.preventDefault(); wcDZ.classList.add('drag-over'); });
+wcDZ.addEventListener('dragleave', () => wcDZ.classList.remove('drag-over'));
+wcDZ.addEventListener('drop', e => {
+  e.preventDefault(); wcDZ.classList.remove('drag-over');
+  wcAddFiles(e.dataTransfer.files);
+});
+wcFI.addEventListener('change', () => { wcAddFiles(wcFI.files); wcFI.value = ''; });
+
+function wcAddFiles(fl) {
+  for (const f of fl) {
+    if (wcFiles.some(u => u.name === f.name && u.file.size === f.size)) continue;
+    wcFiles.push({ file: f, name: f.name });
+  }
+  wcRenderChips();
+}
+
+function wcRenderChips() {
+  const el = document.getElementById('wcFileChips');
+  el.innerHTML = wcFiles.map((f, i) =>
+    `<span class="wc-chip">&#128196; ${f.name} <span class="xc" onclick="wcRemoveFile(${i})">&times;</span></span>`
+  ).join('');
+  document.getElementById('wcProcessBtn').disabled = !wcFiles.length;
+  document.getElementById('wcClearBtn').style.display = wcFiles.length ? 'inline-block' : 'none';
+}
+
+function wcRemoveFile(i) { wcFiles.splice(i, 1); wcRenderChips(); }
+function wcClearFiles() { wcFiles = []; wcRenderChips(); }
+
+// --- WC Process Files ---
+async function wcProcessFiles() {
+  document.getElementById('wcLoading').style.display = 'inline';
+  document.getElementById('wcProcessBtn').disabled = true;
+  wcRecords = []; wcPeriods = []; wcPerFile = {}; wcClassAssign = {};
+  // Clear saved assignments so file-order defaults are always recalculated
+  if (currentCompany) {
+    localStorage.removeItem('wc_class_' + currentCompany);
+    if (_graphAccount) { try { await spDeleteItem('PayrollWCAssignments', currentCompany); } catch(e) {} }
+  }
+
+  await new Promise(r => setTimeout(r, 50));
+
+  for (const uf of wcFiles) {
+    try {
+      const data = await uf.file.arrayBuffer();
+      const result = parsePayroll(new Uint8Array(data));
+      if (result.error) { alert('Error in ' + uf.name + ': ' + result.error); continue; }
+      wcExtractWC(result, uf.name);
+    } catch (err) {
+      alert('Error parsing ' + uf.name + ': ' + err.message);
+    }
+  }
+
+  document.getElementById('wcLoading').style.display = 'none';
+  document.getElementById('wcProcessBtn').disabled = false;
+
+  if (!wcRecords.length) { alert('No employee data found.'); return; }
+
+  wcAggregate();
+  wcGoStep(2);
+}
+
+function wcExtractWC(result, source) {
+  // Extract period info
+  if (result.check_dates && !wcPeriods.includes(result.check_dates)) wcPeriods.push(result.check_dates);
+
+  const fileNames = [];
+  result.employees.forEach(emp => {
+    let regH = 0, regAmt = 0, otH = 0, otAmt = 0;
+    const regRates = [], otRates = [];
+    emp.earnings.forEach(e => {
+      if (e.concept.includes('Regular')) { regH += e.hours; regAmt += e.amount; if (e.rate > 0) regRates.push(e.rate); }
+      else if (e.concept.includes('Overtime')) { otH += e.hours; otAmt += e.amount; if (e.rate > 0) otRates.push(e.rate); }
+    });
+    const regR = regRates.length ? regRates.reduce((s,v)=>s+v,0)/regRates.length : 0;
+    const otR = otRates.length ? otRates.reduce((s,v)=>s+v,0)/otRates.length : 0;
+    wcRecords.push({ name: emp.name, regH, regR, regAmt, otH, otR, otAmt, gross: emp.total_earnings, source });
+    fileNames.push(emp.name);
+  });
+  wcPerFile[source] = fileNames;
+}
+
+function wcAggregate() {
+  wcAggregated = {};
+  wcRecords.forEach(rec => {
+    if (!wcAggregated[rec.name]) {
+      wcAggregated[rec.name] = { name: rec.name, regH: 0, regAmt: 0, otH: 0, otAmt: 0, gross: 0, periods: 0, regRates: [], otRates: [] };
+    }
+    const a = wcAggregated[rec.name];
+    a.regH += rec.regH; a.regAmt += rec.regAmt;
+    a.otH += rec.otH; a.otAmt += rec.otAmt;
+    a.gross += rec.gross; a.periods++;
+    if (rec.regR > 0) a.regRates.push(rec.regR);
+    if (rec.otR > 0) a.otRates.push(rec.otR);
+  });
+  for (const n in wcAggregated) {
+    const a = wcAggregated[n];
+    a.avgRegR = a.regH > 0 ? a.regAmt / a.regH : 0;
+  }
+
+  // Default class assignment: Flores Rios cutoff per file
+  const CUTOFF = 'Flores Rios, Jorge';
+  const set6643 = new Set();
+  for (const src in wcPerFile) {
+    const list = wcPerFile[src];
+    const ci = list.findIndex(n => n.trim() === CUTOFF);
+    if (ci >= 0) { for (let i = 0; i <= ci; i++) set6643.add(list[i]); }
+  }
+  // Assign based on file order — no alphabetical sorting
+  Object.keys(wcAggregated).forEach(n => {
+    wcClassAssign[n] = set6643.has(n) ? '6643' : '3719';
+  });
+
+  wcRenderAssign();
+}
+
+// --- WC Class Code Assignment ---
+function wcRenderAssign() {
+  const n6 = Object.keys(wcClassAssign).filter(n => wcClassAssign[n] === '6643').sort();
+  const n3 = Object.keys(wcClassAssign).filter(n => wcClassAssign[n] === '3719').sort();
+  document.getElementById('wcCnt6643').textContent = n6.length;
+  document.getElementById('wcCnt3719').textContent = n3.length;
+  wcRenderList('6643', n6);
+  wcRenderList('3719', n3);
+}
+
+function wcRenderList(cls, names, filter) {
+  const el = document.getElementById('wcList' + cls);
+  const list = filter ? names.filter(n => n.toLowerCase().includes(filter.toLowerCase())) : names;
+  el.innerHTML = list.map(n =>
+    `<div class="wc-emp"><label><input type="checkbox" data-cls="${cls}" data-name="${n}"> ${n}</label>
+     <span style="color:var(--muted);font-size:0.72rem">${wcAggregated[n] ? '$' + fmt(wcAggregated[n].gross) : ''}</span></div>`
+  ).join('') || '<p style="color:var(--muted);font-size:0.8rem;padding:6px">No employees</p>';
+}
+
+function wcFilterList(cls, val) {
+  const names = Object.keys(wcClassAssign).filter(n => wcClassAssign[n] === cls).sort();
+  wcRenderList(cls, names, val);
+}
+function wcSelAll(cls) { document.querySelectorAll(`#wcList${cls} input[type=checkbox]`).forEach(cb => cb.checked = true); }
+function wcDesel(cls) { document.querySelectorAll(`#wcList${cls} input[type=checkbox]`).forEach(cb => cb.checked = false); }
+function wcMove(from, to) {
+  const cbs = document.querySelectorAll(`#wcList${from} input[type=checkbox]:checked`);
+  if (!cbs.length) return;
+  cbs.forEach(cb => wcClassAssign[cb.getAttribute('data-name')] = to);
+  wcRenderAssign();
+}
+
+// --- WC Navigation ---
+function wcGoStep(n) {
+  ['wcStep1','wcStep2','wcStep3'].forEach((id, i) => {
+    const el = document.getElementById(id);
+    el.className = 'wc-step' + (i + 1 === n ? ' active' : i + 1 < n ? ' done' : '');
+  });
+  document.getElementById('wcUpload').classList.toggle('hidden', n !== 1);
+  document.getElementById('wcAssign').classList.toggle('hidden', n !== 2);
+  document.getElementById('wcReport').classList.toggle('hidden', n !== 3);
+}
+
+function wcResetAll() {
+  wcFiles = []; wcRecords = []; wcPeriods = []; wcPerFile = {};
+  wcClassAssign = {}; wcAggregated = {}; wcEmployees = [];
+  wcRenderChips();
+  wcGoStep(1);
+}
+
+// --- WC Generate Report ---
+async function wcGenerateReport() {
+  wcEmployees = [];
+  for (const name in wcAggregated) {
+    const a = wcAggregated[name];
+    const cls = wcClassAssign[name] || '6643';
+    const otStraight = +(a.otAmt * 2 / 3).toFixed(2);
+    const otPremium = +(a.otAmt - otStraight).toFixed(2);
+    const wcReportable = +(a.regAmt + otStraight).toFixed(2);
+    wcEmployees.push({
+      name, cls, regH: +a.regH.toFixed(2),
+      regAmt: +a.regAmt.toFixed(2), otH: +a.otH.toFixed(2), otAmt: +a.otAmt.toFixed(2),
+      gross: +a.gross.toFixed(2), otStraight, otPremium, wcReportable, periods: a.periods
+    });
+  }
+  wcEmployees.sort((a, b) => a.name.localeCompare(b.name));
+
+  // Save class assignment at company level
+  if (currentCompany) {
+    localStorage.setItem('wc_class_' + currentCompany, JSON.stringify(wcClassAssign));
+    if (_graphAccount) {
+      const fields = { Title: currentCompany, AppId: currentCompany, CompanyName: currentCompany, AssignmentsJson: JSON.stringify(wcClassAssign) };
+      try { await spUpdateItem('PayrollWCAssignments', currentCompany, fields); }
+      catch(e) { try { await spCreateItem('PayrollWCAssignments', fields); } catch(e2) {} }
+    }
+  }
+
+  wcGoStep(3);
+  wcRender('all');
+}
+
+// --- WC Render Report ---
+function wcRender(filter) {
+  const filtered = filter === 'all' ? wcEmployees : wcEmployees.filter(e => e.cls === filter);
+  const s6 = wcEmployees.filter(e => e.cls === '6643');
+  const s3 = wcEmployees.filter(e => e.cls === '3719');
+  const wc6 = s6.reduce((s, e) => s + e.wcReportable, 0);
+  const wc3 = s3.reduce((s, e) => s + e.wcReportable, 0);
+  const grossAll = wcEmployees.reduce((s, e) => s + e.gross, 0);
+  const premAll = wcEmployees.reduce((s, e) => s + e.otPremium, 0);
+
+  document.getElementById('wcSummary').innerHTML = `
+    <div class="wc-metric wc-6643"><h4>Class 6643 — Reportable</h4><div class="wval">$${fmt(wc6)}</div><div class="wsub">${s6.length} employees</div></div>
+    <div class="wc-metric wc-3719"><h4>Class 3719 — Reportable</h4><div class="wval">$${fmt(wc3)}</div><div class="wsub">${s3.length} employees</div></div>
+    <div class="wc-metric wc-total"><h4>Total Reportable</h4><div class="wval">$${fmt(wc6 + wc3)}</div><div class="wsub">$${fmt(premAll)} OT premium excluded</div></div>
+    <div class="wc-metric"><h4>Total Gross Payroll</h4><div class="wval" style="color:var(--text)">$${fmt(grossAll)}</div><div class="wsub">${wcEmployees.length} employees</div></div>`;
+
+  const all = filtered;
+  const tRegH = all.reduce((s, e) => s + e.regH, 0);
+  const tRegAmt = all.reduce((s, e) => s + e.regAmt, 0);
+  const tOtH = all.reduce((s, e) => s + e.otH, 0);
+  const tOtAmt = all.reduce((s, e) => s + e.otAmt, 0);
+  const tGross = all.reduce((s, e) => s + e.gross, 0);
+  const tPrem = all.reduce((s, e) => s + e.otPremium, 0);
+  const tWC = all.reduce((s, e) => s + e.wcReportable, 0);
+
+  document.getElementById('wcTbody').innerHTML = filtered.map(e =>
+    `<tr>
+      <td>${e.name}</td>
+      <td><span class="wc-badge wc-badge-${e.cls}">${e.cls}</span></td>
+      <td class="num">${fmt(e.regH)}</td>
+      <td class="num">$${fmt(e.regAmt)}</td><td class="num">${fmt(e.otH)}</td>
+      <td class="num">$${fmt(e.otAmt)}</td><td class="num">$${fmt(e.gross)}</td>
+      <td class="num neg">($${fmt(e.otPremium)})</td>
+      <td class="num" style="font-weight:700">$${fmt(e.wcReportable)}</td>
+      <td class="num">${e.periods}</td>
+    </tr>`
+  ).join('');
+
+  document.getElementById('wcTfoot').innerHTML = `<tr>
+    <td><strong>Total (${all.length})</strong></td><td></td>
+    <td class="num">${fmt(tRegH)}</td><td class="num">$${fmt(tRegAmt)}</td>
+    <td class="num">${fmt(tOtH)}</td><td class="num">$${fmt(tOtAmt)}</td>
+    <td class="num">$${fmt(tGross)}</td><td class="num neg">($${fmt(tPrem)})</td>
+    <td class="num" style="font-weight:700">$${fmt(tWC)}</td><td></td>
+  </tr>`;
+}
+
+function wcFilterTable(filter, btn) {
+  document.querySelectorAll('.wc-ftab').forEach(t => t.className = 'wc-ftab');
+  btn.classList.add(filter === 'all' ? 'wf-all' : filter === '6643' ? 'wf-6643' : 'wf-3719');
+  wcRender(filter);
+}
+
+// --- WC Export CSV ---
+function wcExportCSV() {
+  const hdrs = ['Employee','Class Code','Reg Hours','Regular $','OT Hours','OT $','Gross Pay','OT Premium Excluded','WC Reportable','Periods'];
+  const rows = [hdrs.join(',')];
+  wcEmployees.forEach(e => rows.push([`"${e.name}"`,e.cls,e.regH,e.regAmt,e.otH,e.otAmt,e.gross,e.otPremium,e.wcReportable,e.periods].join(',')));
+  const s6 = wcEmployees.filter(e => e.cls === '6643');
+  const s3 = wcEmployees.filter(e => e.cls === '3719');
+  rows.push('');
+  rows.push(`"Class 6643 Total",,,,${s6.reduce((s,e)=>s+e.regAmt,0).toFixed(2)},,,,${s6.reduce((s,e)=>s+e.otPremium,0).toFixed(2)},${s6.reduce((s,e)=>s+e.wcReportable,0).toFixed(2)},`);
+  rows.push(`"Class 3719 Total",,,,${s3.reduce((s,e)=>s+e.regAmt,0).toFixed(2)},,,,${s3.reduce((s,e)=>s+e.otPremium,0).toFixed(2)},${s3.reduce((s,e)=>s+e.wcReportable,0).toFixed(2)},`);
+  const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `WC_Payroll_${(currentCompany || 'Report').replace(/\s+/g,'_')}.csv`;
+  a.click();
+}
+
+async function init() {
+  if (await _msalInit()) {
+    try {
+      const redirectResp = await _msalApp.handleRedirectPromise();
+      if (redirectResp) _graphAccount = redirectResp.account;
+      else { const accounts = _msalApp.getAllAccounts(); if (accounts.length > 0) _graphAccount = accounts[0]; }
+      if (_graphAccount) {
+        updateAuthUI();
+        await spEnsureLists();
+        await loadCompanies();
+        await loadClients();
+        return;
+      }
+    } catch(e) { console.warn('MSAL restore failed:', e); }
+  }
+  // Fallback: local/offline mode
+  updateAuthUI();
+  bootstrapFromEmbedded();
+  await loadCompanies();
+  await loadClients();
+}
+init();
+</script>
+</body>
+</html>
