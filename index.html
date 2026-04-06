@@ -209,7 +209,11 @@ const __embeddedBundle = null;
     <!-- Company Selector -->
     <div style="margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border)">
       <label style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin-bottom:4px;display:block">Company</label>
-      <select id="companySelect" onchange="switchCompany(this.value)" style="font-weight:600"></select>
+      <div style="display:flex;gap:4px;align-items:center">
+        <select id="companySelect" onchange="switchCompany(this.value)" style="font-weight:600;flex:1"></select>
+        <button class="btn btn-sm" style="padding:4px 8px;font-size:0.7rem;background:var(--accent)" onclick="editCompanyName()" title="Rename">✏️</button>
+        <button class="btn btn-danger" style="padding:4px 8px;font-size:0.7rem" onclick="deleteCompany()" title="Delete">✕</button>
+      </div>
       <div style="display:flex;gap:4px;margin-top:6px">
         <input type="text" id="newCompanyName" placeholder="Add company..." style="flex:1;margin:0;padding:5px 8px;font-size:0.78rem">
         <button class="btn btn-primary btn-sm" style="padding:4px 10px;font-size:0.75rem" onclick="addCompany()">+</button>
@@ -239,6 +243,9 @@ const __embeddedBundle = null;
         📤 Share App (with data)
         <input type="file" accept=".html,.htm" onchange="shareApp(event)" style="display:none">
       </label>
+    </div>
+    <div style="margin-top:12px;text-align:center;font-size:0.68rem;color:var(--muted)">
+      v<span id="appVersion"></span>
     </div>
   </div>
 
@@ -405,6 +412,7 @@ let lastPayrollData = null;
 let currentCompany = null;
 let companies = [];
 
+const APP_VERSION = '2.0.0';
 const STORAGE_KEY = 'adp_payroll_clients';
 const COMPANY_KEY = 'adp_companies';
 const COMPANY_ACTIVE_KEY = 'adp_active_company';
@@ -651,6 +659,50 @@ async function addCompany() {
   await switchCompany(name);
   renderCompanySelect();
   document.getElementById('newCompanyName').value = '';
+}
+async function editCompanyName() {
+  if (!currentCompany) return;
+  const newName = prompt('Rename company:', currentCompany);
+  if (!newName || newName.trim() === '' || newName.trim() === currentCompany) return;
+  const trimmed = newName.trim();
+  if (companies.includes(trimmed)) { alert('Company already exists.'); return; }
+  const oldName = currentCompany;
+  const idx = companies.indexOf(oldName);
+  companies[idx] = trimmed;
+  currentCompany = trimmed;
+  // Rename WC class assignments key
+  if (_graphAccount) {
+    try {
+      const wcItems = await spFetchAll('PayrollWCAssignments');
+      const old = wcItems.find(i => i.CompanyName === oldName);
+      if (old) { await spDeleteItem('PayrollWCAssignments', oldName); await spCreateItem('PayrollWCAssignments', { Title: trimmed, AppId: trimmed, CompanyName: trimmed, AssignmentsJson: old.AssignmentsJson }); }
+    } catch(e) {}
+  } else {
+    const wcKey = 'wc_class_' + oldName;
+    const wcData = localStorage.getItem(wcKey);
+    if (wcData) { localStorage.removeItem(wcKey); localStorage.setItem('wc_class_' + trimmed, wcData); }
+  }
+  await saveCompanies();
+  await switchCompany(trimmed);
+  renderCompanySelect();
+}
+async function deleteCompany() {
+  if (!currentCompany) return;
+  if (companies.length <= 1) { alert('Cannot delete the only company.'); return; }
+  if (!confirm('Delete company "' + currentCompany + '"? This will not delete client data.')) return;
+  const name = currentCompany;
+  companies = companies.filter(c => c !== name);
+  // Remove WC class assignments
+  if (_graphAccount) {
+    try { await spDeleteItem('PayrollWCAssignments', name); } catch(e) {}
+    try { await spDeleteItem('PayrollCompanies', name); } catch(e) {}
+  } else {
+    localStorage.removeItem('wc_class_' + name);
+  }
+  currentCompany = companies[0];
+  await saveCompanies();
+  await switchCompany(currentCompany);
+  renderCompanySelect();
 }
 
 // --- Panel Navigation ---
@@ -1641,6 +1693,7 @@ function wcExportCSV() {
 }
 
 async function init() {
+  document.getElementById('appVersion').textContent = APP_VERSION;
   if (await _msalInit()) {
     try {
       const redirectResp = await _msalApp.handleRedirectPromise();
