@@ -423,8 +423,9 @@ let currentFileData = null;
 let lastPayrollData = null;
 let currentCompany = null;
 let companies = [];
+const clientCache = {}; // per-client session state cache
 
-const APP_VERSION = '2.1.0';
+const APP_VERSION = '2.2.0';
 const STORAGE_KEY = 'adp_payroll_clients';
 const COMPANY_KEY = 'adp_companies';
 const COMPANY_ACTIVE_KEY = 'adp_active_company';
@@ -717,8 +718,41 @@ async function deleteCompany() {
   renderCompanySelect();
 }
 
+// --- Client state cache ---
+function saveClientState() {
+  if (!currentClient) return;
+  clientCache[currentClient] = {
+    fileData: currentFileData,
+    payrollData: lastPayrollData,
+    resultsHTML: document.getElementById('results').innerHTML,
+    statusHTML: document.getElementById('statusMsg').innerHTML,
+    fileName: document.getElementById('fileName').textContent,
+    hoursReportHTML: document.getElementById('hoursReport').innerHTML,
+    hoursFileName: document.getElementById('hoursFileName').textContent,
+    hoursData: window._hoursReportData || null,
+    exportEnabled: !document.getElementById('exportBtn').disabled,
+    printEnabled: !document.getElementById('printBtn').disabled
+  };
+}
+function restoreClientState(name) {
+  const c = clientCache[name];
+  if (!c) return false;
+  currentFileData = c.fileData;
+  lastPayrollData = c.payrollData;
+  document.getElementById('results').innerHTML = c.resultsHTML;
+  document.getElementById('statusMsg').innerHTML = c.statusHTML;
+  document.getElementById('fileName').textContent = c.fileName;
+  document.getElementById('hoursReport').innerHTML = c.hoursReportHTML;
+  document.getElementById('hoursFileName').textContent = c.hoursFileName;
+  window._hoursReportData = c.hoursData;
+  document.getElementById('exportBtn').disabled = !c.exportEnabled;
+  document.getElementById('printBtn').disabled = !c.printEnabled;
+  return true;
+}
+
 // --- Panel Navigation ---
 function showWCPanel() {
+  saveClientState();
   currentClient = null;
   renderClientList();
   document.getElementById('noClient').classList.add('hidden');
@@ -783,23 +817,28 @@ async function deleteClient(name) {
 }
 
 function selectClient(name) {
+  saveClientState();
   currentClient = name;
-  currentFileData = null;
   document.getElementById('noClient').classList.add('hidden');
   document.getElementById('clientPanel').classList.remove('hidden');
   document.getElementById('wcPanel').classList.add('hidden');
   document.getElementById('navWC').style.background = '#dc2626';
   document.getElementById('panelClientName').textContent = name;
-  document.getElementById('results').innerHTML = '';
-  document.getElementById('statusMsg').innerHTML = '';
-  document.getElementById('fileName').textContent = '';
   document.getElementById('fileUpload').value = '';
-  document.getElementById('exportBtn').disabled = true;
-  document.getElementById('printBtn').disabled = true;
-  document.getElementById('hoursReport').innerHTML = '';
-  document.getElementById('hoursFileName').textContent = '';
   document.getElementById('hoursFileInput').value = '';
-  lastPayrollData = null;
+
+  if (!restoreClientState(name)) {
+    currentFileData = null;
+    lastPayrollData = null;
+    window._hoursReportData = null;
+    document.getElementById('results').innerHTML = '';
+    document.getElementById('statusMsg').innerHTML = '';
+    document.getElementById('fileName').textContent = '';
+    document.getElementById('exportBtn').disabled = true;
+    document.getElementById('printBtn').disabled = true;
+    document.getElementById('hoursReport').innerHTML = '';
+    document.getElementById('hoursFileName').textContent = '';
+  }
   if (!clients[name].products) clients[name].products = [];
   renderClientList();
   renderProducts();
