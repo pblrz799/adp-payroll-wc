@@ -295,8 +295,8 @@ const __embeddedBundle = null;
       <!-- Hours Report -->
       <div class="card" style="margin-top:16px">
         <h2 style="margin-bottom:12px">📋 Weekly Hours Report</h2>
-        <div class="drop-zone" id="hoursDropZone" onclick="document.getElementById('hoursFileInput').click()">
-          <input type="file" id="hoursFileInput" accept=".xlsx,.xls" onchange="hoursHandleFile(this.files[0])" style="display:none">
+        <div class="drop-zone" id="hoursDropZone">
+          <input type="file" id="hoursFileInput" accept=".xlsx,.xls" onchange="hoursHandleFile(this.files[0])" onclick="event.stopPropagation()" style="display:none">
           <p><strong>Drop KOS Hours file here</strong> or click to browse</p>
           <p style="font-size:0.75rem;margin-top:4px">Weekly hours report (.xlsx) — ST/OT calculated at 40 hrs/week</p>
         </div>
@@ -908,6 +908,7 @@ function handleFile(file) {
 
 // --- Hours Report (KOS files) ---
 const hoursDZ = document.getElementById('hoursDropZone');
+hoursDZ.addEventListener('click', () => document.getElementById('hoursFileInput').click());
 hoursDZ.addEventListener('dragover', e => { e.preventDefault(); hoursDZ.classList.add('drag-over'); });
 hoursDZ.addEventListener('dragleave', () => hoursDZ.classList.remove('drag-over'));
 hoursDZ.addEventListener('drop', e => {
