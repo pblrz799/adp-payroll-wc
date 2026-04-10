@@ -1025,20 +1025,28 @@ function hoursProcessData(rows, fileName) {
       <div class="metric"><div class="value">${grandST.toFixed(1)}</div><div class="label">ST Hours</div></div>
       <div class="metric" style="background:var(--danger)"><div class="value">${grandOT.toFixed(1)}</div><div class="label">OT Hours</div></div>
       <div class="metric" style="background:#475569"><div class="value">${grandTotal.toFixed(1)}</div><div class="label">Total Hours</div></div>
+      <div class="metric" style="background:#7c3aed"><div class="value">${grandTotal > 0 ? (grandOT / grandST * 100).toFixed(1) : 0}%</div><div class="label">OT / ST Ratio</div></div>
+      <div class="metric" style="background:#059669"><div class="value">${grandEmp > 0 ? (grandTotal / grandEmp).toFixed(1) : 0}</div><div class="label">Avg Hrs/Employee</div></div>
     </div>
     <table style="margin-top:16px" id="hoursTable">
       <thead><tr>
-        <th>Employee Position</th><th class="num"># Employees</th><th class="num">ST Hours</th><th class="num">OT Hours</th><th class="num">Total Hours</th>
+        <th>Employee Position</th><th class="num"># Emp</th><th class="num">ST Hours</th><th class="num">OT Hours</th><th class="num">Total Hours</th><th class="num">OT/ST %</th><th class="num">Avg Hrs/Emp</th>
       </tr></thead><tbody>`;
   positions.forEach(p => {
+    const otPct = p.st > 0 ? (p.ot / p.st * 100).toFixed(1) : '0.0';
+    const avgHrs = p.employees.size > 0 ? (p.total / p.employees.size).toFixed(1) : '0.0';
     html += `<tr>
       <td>${p.position}</td><td class="num">${p.employees.size}</td>
       <td class="num">${p.st.toFixed(1)}</td><td class="num">${p.ot.toFixed(1)}</td><td class="num">${p.total.toFixed(1)}</td>
+      <td class="num">${otPct}%</td><td class="num">${avgHrs}</td>
     </tr>`;
   });
+  const grandOtPct = grandST > 0 ? (grandOT / grandST * 100).toFixed(1) : '0.0';
+  const grandAvg = grandEmp > 0 ? (grandTotal / grandEmp).toFixed(1) : '0.0';
   html += `</tbody><tfoot><tr style="background:#1e40af;color:#fff;font-weight:700">
     <td>GRAND TOTAL</td><td class="num">${grandEmp}</td>
     <td class="num">${grandST.toFixed(1)}</td><td class="num">${grandOT.toFixed(1)}</td><td class="num">${grandTotal.toFixed(1)}</td>
+    <td class="num">${grandOtPct}%</td><td class="num">${grandAvg}</td>
   </tr></tfoot></table>`;
 
   // Employee detail table
@@ -1066,9 +1074,10 @@ function hoursExportCSV() {
   const d = window._hoursReportData;
   if (!d) return;
   let csv = `Weekly Hours Report - ${d.client || 'Client'} - Period ending: ${d.periodEnd}\n\n`;
-  csv += 'Employee Position,# Employees,ST Hours,OT Hours,Total Hours\n';
-  d.positions.forEach(p => { csv += `"${p.position}",${p.employees.size},${p.st.toFixed(1)},${p.ot.toFixed(1)},${p.total.toFixed(1)}\n`; });
-  csv += `GRAND TOTAL,${d.grandEmp},${d.grandST.toFixed(1)},${d.grandOT.toFixed(1)},${d.grandTotal.toFixed(1)}\n`;
+  csv += 'Employee Position,# Employees,ST Hours,OT Hours,Total Hours,OT/ST %,Avg Hrs/Emp\n';
+  d.positions.forEach(p => { const otPct=p.st>0?(p.ot/p.st*100).toFixed(1):'0.0'; const avg=p.employees.size>0?(p.total/p.employees.size).toFixed(1):'0.0'; csv += `"${p.position}",${p.employees.size},${p.st.toFixed(1)},${p.ot.toFixed(1)},${p.total.toFixed(1)},${otPct}%,${avg}\n`; });
+  const gOtPct=d.grandST>0?(d.grandOT/d.grandST*100).toFixed(1):'0.0'; const gAvg=d.grandEmp>0?(d.grandTotal/d.grandEmp).toFixed(1):'0.0';
+  csv += `GRAND TOTAL,${d.grandEmp},${d.grandST.toFixed(1)},${d.grandOT.toFixed(1)},${d.grandTotal.toFixed(1)},${gOtPct}%,${gAvg}\n`;
   csv += '\nEmployee Detail\nName,Employee #,Position,Total Worked,ST (<=40),OT (>40)\n';
   d.employees.forEach(e => { csv += `"${e.name}","${e.empNum}","${e.position}",${e.totalHrs.toFixed(1)},${e.st.toFixed(1)},${e.ot.toFixed(1)}\n`; });
   const blob = new Blob([csv], { type: 'text/csv' });
