@@ -292,6 +292,18 @@ const __embeddedBundle = null;
         <p id="noProducts" style="color:var(--muted);font-size:0.85rem">No products configured. Add products to map Regular Rates for QBO export.</p>
       </div>
 
+      <!-- Hours Report -->
+      <div class="card" style="margin-top:16px">
+        <h2 style="margin-bottom:12px">📋 Weekly Hours Report</h2>
+        <div class="drop-zone" id="hoursDropZone" onclick="document.getElementById('hoursFileInput').click()">
+          <input type="file" id="hoursFileInput" accept=".xlsx,.xls" onchange="hoursHandleFile(this.files[0])" style="display:none">
+          <p><strong>Drop KOS Hours file here</strong> or click to browse</p>
+          <p style="font-size:0.75rem;margin-top:4px">Weekly hours report (.xlsx) — ST/OT calculated at 40 hrs/week</p>
+        </div>
+        <div id="hoursFileName" style="font-size:0.85rem;color:var(--muted);margin:8px 0"></div>
+        <div id="hoursReport"></div>
+      </div>
+
       <div id="statusMsg"></div>
       <div id="results"></div>
     </div><!-- /clientPanel -->
@@ -412,7 +424,7 @@ let lastPayrollData = null;
 let currentCompany = null;
 let companies = [];
 
-const APP_VERSION = '2.0.0';
+const APP_VERSION = '2.1.0';
 const STORAGE_KEY = 'adp_payroll_clients';
 const COMPANY_KEY = 'adp_companies';
 const COMPANY_ACTIVE_KEY = 'adp_active_company';
@@ -784,6 +796,9 @@ function selectClient(name) {
   document.getElementById('fileUpload').value = '';
   document.getElementById('exportBtn').disabled = true;
   document.getElementById('printBtn').disabled = true;
+  document.getElementById('hoursReport').innerHTML = '';
+  document.getElementById('hoursFileName').textContent = '';
+  document.getElementById('hoursFileInput').value = '';
   lastPayrollData = null;
   if (!clients[name].products) clients[name].products = [];
   renderClientList();
@@ -889,6 +904,176 @@ function handleFile(file) {
   const reader = new FileReader();
   reader.onload = e => { currentFileData = { name: file.name, data: new Uint8Array(e.target.result) }; };
   reader.readAsArrayBuffer(file);
+}
+
+// --- Hours Report (KOS files) ---
+const hoursDZ = document.getElementById('hoursDropZone');
+hoursDZ.addEventListener('dragover', e => { e.preventDefault(); hoursDZ.classList.add('drag-over'); });
+hoursDZ.addEventListener('dragleave', () => hoursDZ.classList.remove('drag-over'));
+hoursDZ.addEventListener('drop', e => {
+  e.preventDefault(); hoursDZ.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file && (file.name.endsWith('.xlsx') || file.name.endsWith('.xls'))) hoursHandleFile(file);
+});
+
+function hoursHandleFile(file) {
+  if (!file) return;
+  document.getElementById('hoursFileName').textContent = '📄 ' + file.name;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      hoursProcessData(rows, file.name);
+    } catch(err) {
+      document.getElementById('hoursReport').innerHTML = `<div class="alert alert-error">Error reading file: ${err.message}</div>`;
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function hoursProcessData(rows, fileName) {
+  // Find header row (contains "Employee Position" and "Total Hours")
+  let headerIdx = -1;
+  for (let i = 0; i < Math.min(10, rows.length); i++) {
+    const r = rows[i].map(c => String(c).trim().toLowerCase());
+    if (r.includes('employee position') && r.includes('total hours')) { headerIdx = i; break; }
+  }
+  if (headerIdx < 0) {
+    document.getElementById('hoursReport').innerHTML = '<div class="alert alert-error">Could not find header row with "Employee Position" and "Total Hours".</div>';
+    return;
+  }
+  const hdr = rows[headerIdx].map(c => String(c).trim());
+  const colPos = hdr.findIndex(h => h.toLowerCase() === 'employee position');
+  const colName = hdr.findIndex(h => h.toLowerCase().includes('last') || h.toLowerCase().includes('name'));
+  const colEmpNum = hdr.findIndex(h => h.toLowerCase() === 'employee number');
+  const colTotal = hdr.findIndex(h => h.toLowerCase() === 'total hours');
+
+  if (colPos < 0 || colEmpNum < 0 || colTotal < 0) {
+    document.getElementById('hoursReport').innerHTML = '<div class="alert alert-error">Missing required columns: Employee Position, Employee Number, Total Hours.</div>';
+    return;
+  }
+
+  // Detect period end from header or data
+  let periodEnd = '';
+  const colPeriod = hdr.findIndex(h => h.toLowerCase().includes('period end'));
+  // Also try title row for date
+  for (let i = 0; i < headerIdx; i++) {
+    for (const cell of rows[i]) {
+      const s = String(cell);
+      if (s.match(/^\d{4}-\d{2}-\d{2}/) || s.match(/^\d{1,2}\/\d{1,2}\/\d{4}/)) {
+        if (!periodEnd) periodEnd = s.split('T')[0].split(' ')[0];
+      }
+    }
+  }
+
+  // Aggregate total hours per employee (sum all rows regardless of ST/OT label)
+  const empMap = {}; // key: empNum
+  for (let i = headerIdx + 1; i < rows.length; i++) {
+    const r = rows[i];
+    const empNum = String(r[colEmpNum] || '').trim();
+    const position = String(r[colPos] || '').trim();
+    const name = colName >= 0 ? String(r[colName] || '').trim() : '';
+    const hours = parseFloat(r[colTotal]) || 0;
+    if (!empNum || !position) continue;
+    if (!empMap[empNum]) empMap[empNum] = { empNum, position, name, totalHrs: 0 };
+    empMap[empNum].totalHrs += hours;
+    if (colPeriod >= 0 && !periodEnd) {
+      const pe = String(r[colPeriod] || '');
+      if (pe) periodEnd = pe.split('T')[0].split(' ')[0];
+    }
+  }
+
+  // Apply 40-hour rule
+  const employees = Object.values(empMap);
+  employees.forEach(e => {
+    e.st = Math.min(e.totalHrs, 40);
+    e.ot = Math.max(e.totalHrs - 40, 0);
+  });
+
+  // Group by position
+  const posMap = {};
+  employees.forEach(e => {
+    if (!posMap[e.position]) posMap[e.position] = { position: e.position, employees: new Set(), st: 0, ot: 0, total: 0 };
+    posMap[e.position].employees.add(e.empNum);
+    posMap[e.position].st += e.st;
+    posMap[e.position].ot += e.ot;
+    posMap[e.position].total += e.totalHrs;
+  });
+  const positions = Object.values(posMap).sort((a, b) => b.st - a.st);
+  const grandST = positions.reduce((s, p) => s + p.st, 0);
+  const grandOT = positions.reduce((s, p) => s + p.ot, 0);
+  const grandTotal = positions.reduce((s, p) => s + p.total, 0);
+  const grandEmp = employees.length;
+
+  // Render report
+  let html = `<div style="margin:12px 0">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+      <div>
+        <strong style="font-size:1rem">${currentClient || 'Client'}</strong>
+        ${periodEnd ? `<span style="color:var(--muted);margin-left:8px;font-size:0.85rem">Period ending: ${periodEnd}</span>` : ''}
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-sm btn-primary" onclick="hoursExportCSV()">⬇ CSV</button>
+        <button class="btn btn-print btn-sm" onclick="window.print()">🖨 Print</button>
+      </div>
+    </div>
+    <div class="metrics">
+      <div class="metric"><div class="value">${grandEmp}</div><div class="label">Employees</div></div>
+      <div class="metric"><div class="value">${grandST.toFixed(1)}</div><div class="label">ST Hours</div></div>
+      <div class="metric" style="background:var(--danger)"><div class="value">${grandOT.toFixed(1)}</div><div class="label">OT Hours</div></div>
+      <div class="metric" style="background:#475569"><div class="value">${grandTotal.toFixed(1)}</div><div class="label">Total Hours</div></div>
+    </div>
+    <table style="margin-top:16px" id="hoursTable">
+      <thead><tr>
+        <th>Employee Position</th><th class="num"># Employees</th><th class="num">ST Hours</th><th class="num">OT Hours</th><th class="num">Total Hours</th>
+      </tr></thead><tbody>`;
+  positions.forEach(p => {
+    html += `<tr>
+      <td>${p.position}</td><td class="num">${p.employees.size}</td>
+      <td class="num">${p.st.toFixed(1)}</td><td class="num">${p.ot.toFixed(1)}</td><td class="num">${p.total.toFixed(1)}</td>
+    </tr>`;
+  });
+  html += `</tbody><tfoot><tr style="background:#1e40af;color:#fff;font-weight:700">
+    <td>GRAND TOTAL</td><td class="num">${grandEmp}</td>
+    <td class="num">${grandST.toFixed(1)}</td><td class="num">${grandOT.toFixed(1)}</td><td class="num">${grandTotal.toFixed(1)}</td>
+  </tr></tfoot></table>`;
+
+  // Employee detail table
+  html += `<div style="margin-top:16px">
+    <div class="detail-toggle" onclick="this.nextElementSibling.classList.toggle('hidden')">▶ Show employee detail</div>
+    <div class="hidden">
+      <table style="margin-top:8px;font-size:0.8rem">
+        <thead><tr><th>Employee</th><th>Emp #</th><th>Position</th><th class="num">Total Worked</th><th class="num">ST (≤40)</th><th class="num">OT (>40)</th></tr></thead><tbody>`;
+  employees.sort((a, b) => a.position.localeCompare(b.position) || a.name.localeCompare(b.name));
+  employees.forEach(e => {
+    const otClass = e.ot > 0 ? ' style="color:var(--danger);font-weight:600"' : '';
+    html += `<tr><td>${e.name}</td><td>${e.empNum}</td><td>${e.position}</td>
+      <td class="num">${e.totalHrs.toFixed(1)}</td><td class="num">${e.st.toFixed(1)}</td>
+      <td class="num"${otClass}>${e.ot.toFixed(1)}</td></tr>`;
+  });
+  html += '</tbody></table></div></div></div>';
+
+  document.getElementById('hoursReport').innerHTML = html;
+
+  // Store data for CSV export
+  window._hoursReportData = { positions, employees, grandST, grandOT, grandTotal, grandEmp, periodEnd, client: currentClient };
+}
+
+function hoursExportCSV() {
+  const d = window._hoursReportData;
+  if (!d) return;
+  let csv = `Weekly Hours Report - ${d.client || 'Client'} - Period ending: ${d.periodEnd}\n\n`;
+  csv += 'Employee Position,# Employees,ST Hours,OT Hours,Total Hours\n';
+  d.positions.forEach(p => { csv += `"${p.position}",${p.employees.size},${p.st.toFixed(1)},${p.ot.toFixed(1)},${p.total.toFixed(1)}\n`; });
+  csv += `GRAND TOTAL,${d.grandEmp},${d.grandST.toFixed(1)},${d.grandOT.toFixed(1)},${d.grandTotal.toFixed(1)}\n`;
+  csv += '\nEmployee Detail\nName,Employee #,Position,Total Worked,ST (<=40),OT (>40)\n';
+  d.employees.forEach(e => { csv += `"${e.name}","${e.empNum}","${e.position}",${e.totalHrs.toFixed(1)},${e.st.toFixed(1)},${e.ot.toFixed(1)}\n`; });
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `Hours_Report_${(d.client||'').replace(/\s+/g,'_')}_${d.periodEnd||'report'}.csv`;
+  a.click();
 }
 
 // --- Payroll parsing ---
