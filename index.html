@@ -294,7 +294,14 @@ const __embeddedBundle = null;
 
       <!-- Hours Report -->
       <div class="card" style="margin-top:16px">
-        <h2 style="margin-bottom:12px">📋 Weekly Hours Report</h2>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h2 style="margin-bottom:0">📋 Weekly Hours Report</h2>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:0.8rem;color:var(--muted)">Inv TL rate:</span>
+            <span id="tlRateDisplay" style="font-weight:600;font-size:0.9rem">$0.00/hr</span>
+            <button class="btn btn-sm" style="padding:4px 8px;background:var(--accent)" onclick="configureTlRate()" title="Configure Inv TL rate">⚙️</button>
+          </div>
+        </div>
         <div class="drop-zone" id="hoursDropZone">
           <input type="file" id="hoursFileInput" accept=".xlsx,.xls" onchange="hoursHandleFile(this.files[0])" onclick="event.stopPropagation()" style="display:none">
           <p><strong>Drop KOS Hours file here</strong> or click to browse</p>
@@ -425,7 +432,7 @@ let currentCompany = null;
 let companies = [];
 const clientCache = {}; // per-client session state cache
 
-const APP_VERSION = '2.2.0';
+const APP_VERSION = '2.3.0';
 const STORAGE_KEY = 'adp_payroll_clients';
 const COMPANY_KEY = 'adp_companies';
 const COMPANY_ACTIVE_KEY = 'adp_active_company';
@@ -598,15 +605,24 @@ async function collectFullConfig() {
   return { clients, companies, activeCompany: currentCompany, wcClassAssignments };
 }
 
+function _parseClientBlob(raw) {
+  // Backward-compat: raw may be an array (old: just products) or an object {products, tlRate}
+  let parsed = [];
+  try { parsed = JSON.parse(raw || '[]'); } catch(e) { parsed = []; }
+  if (Array.isArray(parsed)) return { products: parsed, tlRate: 0 };
+  return { products: Array.isArray(parsed.products) ? parsed.products : [], tlRate: Number(parsed.tlRate) || 0 };
+}
 async function loadClients() {
   if (_graphAccount) {
     const items = await spFetchAll('PayrollClients');
     clients = {};
-    items.forEach(item => { let p=[]; try{p=JSON.parse(item.ProductsJson||'[]');}catch(e){} clients[item.ClientName]={products:p}; });
+    items.forEach(item => { const blob = _parseClientBlob(item.ProductsJson); clients[item.ClientName] = blob; });
   } else {
     try { clients = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch(e) { clients = {}; }
   }
   Object.values(clients).forEach(c => {
+    if (c.tlRate === undefined) c.tlRate = 0;
+    c.tlRate = Number(c.tlRate) || 0;
     (c.products || []).forEach(p => {
       if (p.rate !== undefined && p.adpRate === undefined) { p.adpRate = p.rate; p.clientRate = p.rate; delete p.rate; }
       p.adpRate = Number(p.adpRate) || 0; p.clientRate = Number(p.clientRate) || 0;
@@ -621,7 +637,8 @@ async function saveClients() {
   const spItems = await spFetchAll('PayrollClients'); const spByName = {};
   spItems.forEach(item => { spByName[item.ClientName] = item; });
   for (const [name, data] of Object.entries(clients)) {
-    const fields = { Title: name, ClientName: name, AppId: name, ProductsJson: JSON.stringify(data.products || []) };
+    const blob = { products: data.products || [], tlRate: Number(data.tlRate) || 0 };
+    const fields = { Title: name, ClientName: name, AppId: name, ProductsJson: JSON.stringify(blob) };
     if (spByName[name]) await spUpdateItem('PayrollClients', name, fields);
     else await spCreateItem('PayrollClients', fields);
   }
@@ -840,9 +857,32 @@ function selectClient(name) {
     document.getElementById('hoursFileName').textContent = '';
   }
   if (!clients[name].products) clients[name].products = [];
+  if (clients[name].tlRate === undefined) clients[name].tlRate = 0;
   renderClientList();
   renderProducts();
+  renderTlRate();
   hideAddProduct();
+}
+
+function renderTlRate() {
+  const el = document.getElementById('tlRateDisplay');
+  if (!el) return;
+  const r = currentClient && clients[currentClient] ? Number(clients[currentClient].tlRate) || 0 : 0;
+  el.textContent = '$' + r.toFixed(2) + '/hr';
+}
+
+async function configureTlRate() {
+  if (!currentClient) return;
+  const cur = Number(clients[currentClient].tlRate) || 0;
+  const val = prompt('Inv TL rate ($/hour) for ' + currentClient + '\n\nThis rate × ST Hours = Terralabor invoice amount.', cur.toString());
+  if (val === null) return;
+  const n = parseFloat(val);
+  if (isNaN(n) || n < 0) { alert('Invalid rate'); return; }
+  clients[currentClient].tlRate = n;
+  await saveClients();
+  renderTlRate();
+  // Re-render the hours report if already generated
+  if (window._hoursReportData) hoursRenderReport(window._hoursReportData);
 }
 
 // --- Products ---
@@ -1047,11 +1087,21 @@ function hoursProcessData(rows, fileName) {
   const grandTotal = positions.reduce((s, p) => s + p.total, 0);
   const grandEmp = employees.length;
 
-  // Render report
+  // Store aggregated data then render
+  window._hoursReportData = { positions, employees, grandST, grandOT, grandTotal, grandEmp, periodEnd, client: currentClient };
+  hoursRenderReport(window._hoursReportData);
+}
+
+function hoursRenderReport(d) {
+  const { positions, employees, grandST, grandOT, grandTotal, grandEmp, periodEnd } = d;
+  const tlRate = currentClient && clients[currentClient] ? Number(clients[currentClient].tlRate) || 0 : 0;
+  const grandInvTL = grandST * tlRate;
+  const fmtMoney = v => '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
   let html = `<div style="margin:12px 0">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
       <div>
-        <strong style="font-size:1rem">${currentClient || 'Client'}</strong>
+        <strong style="font-size:1rem">${d.client || 'Client'}</strong>
         ${periodEnd ? `<span style="color:var(--muted);margin-left:8px;font-size:0.85rem">Period ending: ${periodEnd}</span>` : ''}
       </div>
       <div style="display:flex;gap:6px">
@@ -1064,20 +1114,22 @@ function hoursProcessData(rows, fileName) {
       <div class="metric"><div class="value">${grandST.toFixed(1)}</div><div class="label">ST Hours</div></div>
       <div class="metric" style="background:var(--danger)"><div class="value">${grandOT.toFixed(1)}</div><div class="label">OT Hours</div></div>
       <div class="metric" style="background:#475569"><div class="value">${grandTotal.toFixed(1)}</div><div class="label">Total Hours</div></div>
-      <div class="metric" style="background:#7c3aed"><div class="value">${grandTotal > 0 ? (grandOT / grandST * 100).toFixed(1) : 0}%</div><div class="label">OT / ST Ratio</div></div>
+      <div class="metric" style="background:#7c3aed"><div class="value">${grandST > 0 ? (grandOT / grandST * 100).toFixed(1) : 0}%</div><div class="label">OT / ST Ratio</div></div>
       <div class="metric" style="background:#059669"><div class="value">${grandEmp > 0 ? (grandTotal / grandEmp).toFixed(1) : 0}</div><div class="label">Avg Hrs/Employee</div></div>
+      <div class="metric" style="background:#0891b2"><div class="value">${fmtMoney(grandInvTL)}</div><div class="label">Inv TL (@ $${tlRate.toFixed(2)}/hr)</div></div>
     </div>
     <table style="margin-top:16px" id="hoursTable">
       <thead><tr>
-        <th>Employee Position</th><th class="num"># Emp</th><th class="num">ST Hours</th><th class="num">OT Hours</th><th class="num">Total Hours</th><th class="num">OT/ST %</th><th class="num">Avg Hrs/Emp</th>
+        <th>Employee Position</th><th class="num"># Emp</th><th class="num">ST Hours</th><th class="num">OT Hours</th><th class="num">Total Hours</th><th class="num">OT/ST %</th><th class="num">Avg Hrs/Emp</th><th class="num">Inv TL</th>
       </tr></thead><tbody>`;
   positions.forEach(p => {
     const otPct = p.st > 0 ? (p.ot / p.st * 100).toFixed(1) : '0.0';
     const avgHrs = p.employees.size > 0 ? (p.total / p.employees.size).toFixed(1) : '0.0';
+    const invTL = p.st * tlRate;
     html += `<tr>
       <td>${p.position}</td><td class="num">${p.employees.size}</td>
       <td class="num">${p.st.toFixed(1)}</td><td class="num">${p.ot.toFixed(1)}</td><td class="num">${p.total.toFixed(1)}</td>
-      <td class="num">${otPct}%</td><td class="num">${avgHrs}</td>
+      <td class="num">${otPct}%</td><td class="num">${avgHrs}</td><td class="num">${fmtMoney(invTL)}</td>
     </tr>`;
   });
   const grandOtPct = grandST > 0 ? (grandOT / grandST * 100).toFixed(1) : '0.0';
@@ -1085,7 +1137,7 @@ function hoursProcessData(rows, fileName) {
   html += `</tbody><tfoot><tr style="background:#1e40af;color:#fff;font-weight:700">
     <td>GRAND TOTAL</td><td class="num">${grandEmp}</td>
     <td class="num">${grandST.toFixed(1)}</td><td class="num">${grandOT.toFixed(1)}</td><td class="num">${grandTotal.toFixed(1)}</td>
-    <td class="num">${grandOtPct}%</td><td class="num">${grandAvg}</td>
+    <td class="num">${grandOtPct}%</td><td class="num">${grandAvg}</td><td class="num">${fmtMoney(grandInvTL)}</td>
   </tr></tfoot></table>`;
 
   // Employee detail table
@@ -1094,8 +1146,8 @@ function hoursProcessData(rows, fileName) {
     <div class="hidden">
       <table style="margin-top:8px;font-size:0.8rem">
         <thead><tr><th>Employee</th><th>Emp #</th><th>Position</th><th class="num">Total Worked</th><th class="num">ST (≤40)</th><th class="num">OT (>40)</th></tr></thead><tbody>`;
-  employees.sort((a, b) => a.position.localeCompare(b.position) || a.name.localeCompare(b.name));
-  employees.forEach(e => {
+  const sorted = [...employees].sort((a, b) => a.position.localeCompare(b.position) || a.name.localeCompare(b.name));
+  sorted.forEach(e => {
     const otClass = e.ot > 0 ? ' style="color:var(--danger);font-weight:600"' : '';
     html += `<tr><td>${e.name}</td><td>${e.empNum}</td><td>${e.position}</td>
       <td class="num">${e.totalHrs.toFixed(1)}</td><td class="num">${e.st.toFixed(1)}</td>
@@ -1104,19 +1156,19 @@ function hoursProcessData(rows, fileName) {
   html += '</tbody></table></div></div></div>';
 
   document.getElementById('hoursReport').innerHTML = html;
-
-  // Store data for CSV export
-  window._hoursReportData = { positions, employees, grandST, grandOT, grandTotal, grandEmp, periodEnd, client: currentClient };
 }
 
 function hoursExportCSV() {
   const d = window._hoursReportData;
   if (!d) return;
-  let csv = `Weekly Hours Report - ${d.client || 'Client'} - Period ending: ${d.periodEnd}\n\n`;
-  csv += 'Employee Position,# Employees,ST Hours,OT Hours,Total Hours,OT/ST %,Avg Hrs/Emp\n';
-  d.positions.forEach(p => { const otPct=p.st>0?(p.ot/p.st*100).toFixed(1):'0.0'; const avg=p.employees.size>0?(p.total/p.employees.size).toFixed(1):'0.0'; csv += `"${p.position}",${p.employees.size},${p.st.toFixed(1)},${p.ot.toFixed(1)},${p.total.toFixed(1)},${otPct}%,${avg}\n`; });
+  const tlRate = currentClient && clients[currentClient] ? Number(clients[currentClient].tlRate) || 0 : 0;
+  let csv = `Weekly Hours Report - ${d.client || 'Client'} - Period ending: ${d.periodEnd}\n`;
+  csv += `Inv TL rate: $${tlRate.toFixed(2)}/hr\n\n`;
+  csv += 'Employee Position,# Employees,ST Hours,OT Hours,Total Hours,OT/ST %,Avg Hrs/Emp,Inv TL\n';
+  d.positions.forEach(p => { const otPct=p.st>0?(p.ot/p.st*100).toFixed(1):'0.0'; const avg=p.employees.size>0?(p.total/p.employees.size).toFixed(1):'0.0'; const invTL=(p.st*tlRate).toFixed(2); csv += `"${p.position}",${p.employees.size},${p.st.toFixed(1)},${p.ot.toFixed(1)},${p.total.toFixed(1)},${otPct}%,${avg},$${invTL}\n`; });
   const gOtPct=d.grandST>0?(d.grandOT/d.grandST*100).toFixed(1):'0.0'; const gAvg=d.grandEmp>0?(d.grandTotal/d.grandEmp).toFixed(1):'0.0';
-  csv += `GRAND TOTAL,${d.grandEmp},${d.grandST.toFixed(1)},${d.grandOT.toFixed(1)},${d.grandTotal.toFixed(1)},${gOtPct}%,${gAvg}\n`;
+  const gInvTL = (d.grandST * tlRate).toFixed(2);
+  csv += `GRAND TOTAL,${d.grandEmp},${d.grandST.toFixed(1)},${d.grandOT.toFixed(1)},${d.grandTotal.toFixed(1)},${gOtPct}%,${gAvg},$${gInvTL}\n`;
   csv += '\nEmployee Detail\nName,Employee #,Position,Total Worked,ST (<=40),OT (>40)\n';
   d.employees.forEach(e => { csv += `"${e.name}","${e.empNum}","${e.position}",${e.totalHrs.toFixed(1)},${e.st.toFixed(1)},${e.ot.toFixed(1)}\n`; });
   const blob = new Blob([csv], { type: 'text/csv' });
